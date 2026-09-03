@@ -36,24 +36,15 @@ HarmonyOS 开发工作台（DSH Web 悬浮窗，**Windows-only**）。一个 npm
 
 ## 安装
 
-### 开发模式（本仓库，link 安装）
+克隆本仓库后，在仓库根目录执行：
 
-```bash
-dsh plugin --profile web add link:<path-to-repo>
+```powershell
+dsh plugin --profile web add .\packages\dsh-hmos-sidebar
 ```
 
-官方 `dsh plugin add` 会自动完成：登记依赖 → 识别包内 `dsh.bundle.patch` → 注册进 `dsh.profile.bundles`（host 半 + client 半一起挂载）。卸载：`dsh plugin --profile web remove dsh-hmos-sidebar`。
+官方 `dsh plugin add` 会自动完成：登记依赖 → 识别包内 `dsh.bundle.patch` → 注册进 `dsh.profile.bundles`（host 半 + client 半一起挂载）。安装后重启对应的 DSH Web Profile。卸载：`dsh plugin --profile web remove dsh-hmos-sidebar`。
 
-link 安装下，改 `lib/*.js` 后**重启 web 进程**即生效，无需重装。
-
-> 41 个 `dcli__*` 工具需预设单独通过 `./tools` 挂载（见「结构」与 native-harmonyos 预设的 cordis 配置）。
-
-### 发布后（npm registry）
-
-```bash
-npm publish
-dsh plugin --profile web add dsh-hmos-sidebar
-```
+> 41 个 `dcli__*` 工具需由本仓库中的 `native-harmonyos` 或 `liangshen-native-harmonyos` 预设通过 `./tools` 单独挂载；主插件不会向所有 Agent 全局注册工具。
 
 包内直接依赖仅 `@modelcontextprotocol/sdk`。`@deepseek-ai/dsh-tools` 是 DSH 共享宿主包，声明为可选 `peerDependency`，不随插件单独安装，避免在插件内复制并遮蔽宿主版本；`./tools` 入口仅在 DSH 宿主提供该包时使用。
 
