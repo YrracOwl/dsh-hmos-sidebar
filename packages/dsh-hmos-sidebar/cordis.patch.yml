@@ -1,0 +1,25 @@
+# dsh-hmos-sidebar bundle patch
+#
+# This file is the `dsh.bundle.patch` layer of this npm package: when the
+# plugin is installed through the official CLI
+#   dsh plugin --profile <name> add dsh-hmos-sidebar
+# the command reconciles `dsh.profile.bundles` and appends `dsh-hmos-sidebar`
+# to the bundle stack. The profile boot then merges THIS patch (a single
+# `insert` of the plugin row) exactly like a manual cordis.patch.yml mount.
+#
+# 平台：Windows-only（与 package.json 的 "os": ["win32"] 及 README 一致），
+# 不提供 POSIX 支持。
+#
+# config 透传给 host 半的 apply(ctx, config)：cliPath/projectPath/devEcoHome/
+# projectRoots/screenshotDir 均可省略，有自动探测（lib/environment.js，动态解析、
+# 安装后无需重启可识别）。此处不写任何个人绝对路径：
+#   - cliPath 缺省从 %APPDATA%/npm/node_modules/@deveco/deveco-cli 探测
+#   - devEcoHome 缺省从 DEVECO_HOME / DEVECO_SDK_HOME / 常见安装位置探测
+#   - projectPath 缺省 process.cwd()
+#   - projectRoots 缺省不扫描任何目录，由 preset 通过 config.projectRoots 提供
+#
+# 41 个 dcli__* 模型工具不在本行挂载：preset 单独通过 package export "./tools"
+# （lib/dcli-tools.mjs）挂载。本行只挂 host 半（RPC）+ client 半（悬浮 UI）。
+- insert:
+    - id: dsh-hmos-sidebar
+      name: 'dsh-hmos-sidebar'

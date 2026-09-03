@@ -1,0 +1,28 @@
+# Dependencies and generated output
+**/node_modules/
+**/artifacts/
+**/.dsh-screenshots/
+**/*.dsh-backup
+**/*.dsh-agents-backup
+
+# Local HarmonyOS / signing state
+**/local.properties
+**/build-profile.local.json5
+**/*.p12
+**/*.p7b
+**/*.cer
+**/*.hap
+**/*.app
+**/.env
+**/.env.*
+!.env.example
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs and temporary files
+*.log
+*.tmp

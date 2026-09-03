@@ -1,0 +1,2 @@
+name: 原生鸿蒙开发
+description: 面向 HarmonyOS 原生应用开发的垂类 Agent：以 PTC 模式为执行形态（底层通过 Code Mode SDK 的 run_code 组合多步操作），集成 ArkTS/C++ 静态检查、41 项 dcli__* 工具链、真机 UI 自动验证、场景契约式特性交付与本地 HarmonyOS 知识技能。
