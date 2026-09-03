@@ -12,9 +12,9 @@
 ## 仓库结构
 
 ```text
-packages/dsh-hmos-sidebar/          DSH 插件和 41 个 dcli__* 工具
-presets/native-harmonyos/           “原生鸿蒙开发”预设及 Skills
-presets/liangshen-native-harmonyos/ “梁神模式-原生鸿蒙开发”预设
+packages/dsh-hmos-sidebar/            npm 包：DSH 插件、41 个 dcli__* 工具和预设安装器
+  presets/native-harmonyos/           “原生鸿蒙开发”预设及 Skills
+  presets/liangshen-native-harmonyos/ “梁神模式-原生鸿蒙开发”预设
 ```
 
 ## 安装
@@ -34,6 +34,12 @@ cd dsh-hmos-sidebar
 dsh plugin --profile web add .\packages\dsh-hmos-sidebar
 ```
 
+如果使用已发布的 npm 包，则执行：
+
+```powershell
+dsh plugin --profile web add dsh-hmos-sidebar
+```
+
 安装后重启该 Profile 对应的 DSH Web 进程，再打开或刷新 DSH Web 页面。
 
 插件会同时挂载：
@@ -45,45 +51,43 @@ dsh plugin --profile web add .\packages\dsh-hmos-sidebar
 
 ### 3. 安装预设
 
-DSH 用户预设目录为：
-
-```text
-${DSH_HOME:-$HOME/.dsh}/.agent-presets/
-```
-
-Windows 默认通常对应：
-
-```text
-%USERPROFILE%\.dsh\.agent-presets\
-```
-
-安装“原生鸿蒙开发”预设：
+npm 包同时携带两个预设。安装插件后，显式运行预设安装器：
 
 ```powershell
-$presetRoot = if ($env:DSH_HOME) {
-  Join-Path $env:DSH_HOME '.agent-presets'
-} else {
-  Join-Path $HOME '.dsh\.agent-presets'
-}
-
-New-Item -ItemType Directory -Force $presetRoot | Out-Null
-Copy-Item -Recurse .\presets\native-harmonyos (Join-Path $presetRoot 'native-harmonyos')
+npx --yes dsh-hmos-sidebar install-presets
 ```
 
-可选安装“梁神模式-原生鸿蒙开发”预设：
+如果使用本地 checkout，先进入包目录再运行：
 
 ```powershell
-Copy-Item -Recurse .\presets\liangshen-native-harmonyos (Join-Path $presetRoot 'liangshen-native-harmonyos')
+cd packages\dsh-hmos-sidebar
+node .\bin\dsh-hmos-sidebar.mjs install-presets
 ```
 
-如果目标目录已经存在，请先备份并人工合并，不要直接覆盖已有的本地定制。
+默认安装：
 
-安装预设后重启 DSH Profile，并在新建会话时选择：
+- `native-harmonyos`（原生鸿蒙开发）
+- `liangshen-native-harmonyos`（梁神模式-原生鸿蒙开发）
 
-- `原生鸿蒙开发`
-- `梁神模式-原生鸿蒙开发`
+只安装一个预设：
 
-预设中的 `tool-hmos-tools` 引用 `dsh-hmos-sidebar/tools`，因此必须先完成插件安装。
+```powershell
+npx --yes dsh-hmos-sidebar install-presets --preset native-harmonyos
+```
+
+先预览目标路径、不写文件：
+
+```powershell
+npx --yes dsh-hmos-sidebar install-presets --dry-run
+```
+
+安装器写入 `${DSH_HOME:-$HOME/.dsh}/.agent-presets/`。目标预设已存在时默认拒绝覆盖；确认替换时可使用 `--force`，原目录会先保存为带时间戳的备份：
+
+```powershell
+npx --yes dsh-hmos-sidebar install-presets --force
+```
+
+安装后重启 DSH Profile，并在新建会话时选择对应预设。预设中的 `tool-hmos-tools` 引用 `dsh-hmos-sidebar/tools`，因此必须先完成插件安装。
 
 ## 环境配置
 

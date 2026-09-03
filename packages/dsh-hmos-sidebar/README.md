@@ -44,7 +44,15 @@ dsh plugin --profile web add .\packages\dsh-hmos-sidebar
 
 官方 `dsh plugin add` 会自动完成：登记依赖 → 识别包内 `dsh.bundle.patch` → 注册进 `dsh.profile.bundles`（host 半 + client 半一起挂载）。安装后重启对应的 DSH Web Profile。卸载：`dsh plugin --profile web remove dsh-hmos-sidebar`。
 
-> 41 个 `dcli__*` 工具需由本仓库中的 `native-harmonyos` 或 `liangshen-native-harmonyos` 预设通过 `./tools` 单独挂载；主插件不会向所有 Agent 全局注册工具。
+> 41 个 `dcli__*` 工具需由包内的 `native-harmonyos` 或 `liangshen-native-harmonyos` 预设通过 `./tools` 单独挂载；主插件不会向所有 Agent 全局注册工具。
+
+安装插件后，运行预设安装器（默认安装两个预设）：
+
+```powershell
+npx dsh-hmos-sidebar install-presets
+```
+
+可先执行 `npx dsh-hmos-sidebar install-presets --dry-run` 查看目标路径；已有同名预设时默认拒绝覆盖。确认替换可加 `--force`，安装器会先备份原目录。也可用 `--preset native-harmonyos` 只安装一个预设。完成后重启 DSH Profile。
 
 包内直接依赖仅 `@modelcontextprotocol/sdk`。`@deepseek-ai/dsh-tools` 是 DSH 共享宿主包，声明为可选 `peerDependency`，不随插件单独安装，避免在插件内复制并遮蔽宿主版本；`./tools` 入口仅在 DSH 宿主提供该包时使用。
 

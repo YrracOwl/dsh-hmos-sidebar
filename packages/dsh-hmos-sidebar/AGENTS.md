@@ -16,6 +16,8 @@ Never register the model tools from the main bundle. Never accept arbitrary argv
 - `lib/index.js`: Host route fence, body limit, action validation, path containment, device/build/deploy operations.
 - `lib/client.js`: Shadow-DOM workbench, current-session cwd handling, bounded project discovery, persisted geometry.
 - `lib/dcli-tools.mjs`: tool definitions and tool implementations.
+- `bin/dsh-hmos-sidebar.mjs`: explicit `install-presets` CLI with conflict protection and backups.
+- `presets/`: the two bundled user-level HarmonyOS agent presets.
 - `lib/dual-signing.js`: preview-first dual-signing merge and backup behavior.
 - `lib/validate.js`: shared validation helpers.
 - `cordis.patch.yml`: main Host+Client row only; no personal paths and no tools row.
