@@ -19,28 +19,27 @@ packages/dsh-hmos-sidebar/            npm 包：DSH 插件、41 个 dcli__* 工�
 
 ## 安装
 
-### 1. 克隆仓库
+### 方式一：从 npm 安装（推荐）
 
-```powershell
-git clone https://github.com/YrracOwl/dsh-hmos-sidebar.git
-cd dsh-hmos-sidebar
-```
-
-### 2. 安装插件
+当前公开版本：[`dsh-hmos-sidebar@0.3.0`](https://www.npmjs.com/package/dsh-hmos-sidebar)
 
 将插件安装到需要使用的 DSH Profile。以下示例使用 `web`：
-
-```powershell
-dsh plugin --profile web add .\packages\dsh-hmos-sidebar
-```
-
-如果使用已发布的 npm 包，则执行：
 
 ```powershell
 dsh plugin --profile web add dsh-hmos-sidebar
 ```
 
 安装后重启该 Profile 对应的 DSH Web 进程，再打开或刷新 DSH Web 页面。
+
+### 方式二：从 GitHub 源码安装
+
+```powershell
+git clone https://github.com/YrracOwl/dsh-hmos-sidebar.git
+cd dsh-hmos-sidebar
+dsh plugin --profile web add .\packages\dsh-hmos-sidebar
+```
+
+源码安装适合开发、调试或需要修改插件代码的场景。修改后需要重新执行安装命令，并重启对应 DSH Web Profile。
 
 插件会同时挂载：
 
@@ -51,7 +50,7 @@ dsh plugin --profile web add dsh-hmos-sidebar
 
 ### 3. 安装预设
 
-npm 包同时携带两个预设。安装插件后，显式运行预设安装器：
+npm 包同时携带两个预设（详见 [npm 包内容](https://www.npmjs.com/package/dsh-hmos-sidebar)）。安装插件后，显式运行预设安装器：
 
 ```powershell
 npx --yes dsh-hmos-sidebar install-presets

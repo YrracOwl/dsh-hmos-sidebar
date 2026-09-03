@@ -36,6 +36,14 @@ HarmonyOS 开发工作台（DSH Web 悬浮窗，**Windows-only**）。一个 npm
 
 ## 安装
 
+### 从 npm 安装（推荐）
+
+```powershell
+dsh plugin --profile web add dsh-hmos-sidebar
+```
+
+### 从 GitHub 源码安装
+
 克隆本仓库后，在仓库根目录执行：
 
 ```powershell
@@ -49,10 +57,10 @@ dsh plugin --profile web add .\packages\dsh-hmos-sidebar
 安装插件后，运行预设安装器（默认安装两个预设）：
 
 ```powershell
-npx dsh-hmos-sidebar install-presets
+npx --yes dsh-hmos-sidebar install-presets
 ```
 
-可先执行 `npx dsh-hmos-sidebar install-presets --dry-run` 查看目标路径；已有同名预设时默认拒绝覆盖。确认替换可加 `--force`，安装器会先备份原目录。也可用 `--preset native-harmonyos` 只安装一个预设。完成后重启 DSH Profile。
+可先执行 `npx --yes dsh-hmos-sidebar install-presets --dry-run` 查看目标路径；已有同名预设时默认拒绝覆盖。确认替换可加 `--force`，安装器会先备份原目录。也可用 `--preset native-harmonyos` 只安装一个预设。完成后重启 DSH Profile。
 
 包内直接依赖仅 `@modelcontextprotocol/sdk`。`@deepseek-ai/dsh-tools` 是 DSH 共享宿主包，声明为可选 `peerDependency`，不随插件单独安装，避免在插件内复制并遮蔽宿主版本；`./tools` 入口仅在 DSH 宿主提供该包时使用。
 
