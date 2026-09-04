@@ -28,6 +28,14 @@ function normalizedWinPath(value) {
   return value.replace(/\//g, '\\').toLowerCase()
 }
 
+// Windows exposes both the short 8.3 path (realpathSync) and the native long
+// path (realpathSync.native). Production code deliberately uses the native
+// form, so test expectations must resolve through the same API to avoid
+// runner-name differences such as RUNNER~1 versus RunnerAdmin.
+function nativeRealpath(value) {
+  return fs.realpathSync.native ? fs.realpathSync.native(value) : fs.realpathSync(value)
+}
+
 test('defaultScreenshotDir is neutral (no D:/tmp), prefers config.screenshotDir', () => {
   const d = defaultScreenshotDir({ screenshotDir: 'C:\\shots' }, 'C:\\project')
   assert.equal(d, 'C:\\shots')
@@ -163,7 +171,7 @@ test('resolveRealWinPath resolves lexical .. and nearest-existing ancestor (no j
   const f = path.join(tmp, 'real.hap')
   fs.writeFileSync(f, 'x')
   try {
-    assert.equal(normalizedWinPath(resolveRealWinPath(f)), normalizedWinPath(fs.realpathSync(f)))
+    assert.equal(normalizedWinPath(resolveRealWinPath(f)), normalizedWinPath(nativeRealpath(f)))
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true })
   }
@@ -295,7 +303,7 @@ test('findHarmonyProjectRoots detects current root and nested workspace projects
     fs.mkdirSync(path.join(nested, 'AppScope'), { recursive: true })
     fs.writeFileSync(path.join(nested, 'build-profile.json5'), '{}')
     fs.writeFileSync(path.join(nested, 'AppScope', 'app.json5'), '{}')
-    const expected = normalizedWinPath(fs.realpathSync(nested))
+    const expected = normalizedWinPath(nativeRealpath(nested))
     assert.deepEqual(findHarmonyProjectRoots(nested).map(normalizedWinPath), [expected])
     assert.deepEqual(findHarmonyProjectRoots(workspace).map(normalizedWinPath), [expected])
   } finally {
@@ -315,7 +323,7 @@ test('findHarmonyProjectRoots skips heavy directories and respects depth', () =>
     fs.writeFileSync(path.join(deep, 'build-profile.json5'), '{}')
     fs.writeFileSync(path.join(deep, 'AppScope', 'app.json5'), '{}')
     assert.deepEqual(findHarmonyProjectRoots(workspace), [])
-    const expected = normalizedWinPath(fs.realpathSync(deep))
+    const expected = normalizedWinPath(nativeRealpath(deep))
     assert.deepEqual(findHarmonyProjectRoots(workspace, { maxDepth: 4 }).map(normalizedWinPath), [expected])
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true })
