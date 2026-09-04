@@ -2,6 +2,8 @@
 
 ## English
 
+**Current release: 0.3.3** — includes the legacy-host startup fix: optional Remote capability detection no longer blocks older DSH releases.
+
 A Windows-only HarmonyOS development workbench for DeepSeek Harness Web. One package bundles the Host RPC, 41 `dcli__*` tools, floating Web UI, and two installable HarmonyOS agent presets: `native-harmonyos` and `liangshen-native-harmonyos`. The Liangshen preset uses a capability-detected compatibility layer: DSH 0.1.2+ uses `session.snapshotEvents()`, while older RC releases fall back to `session.events`.
 
 Install with `dsh plugin --profile web add dsh-hmos-sidebar`, then run `npx --yes dsh-hmos-sidebar install-presets`. Windows only; restart the DSH Web Profile after installation.
