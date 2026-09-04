@@ -255,8 +255,12 @@ function decidePromotion(state, config) {
 }
 
 /** Scan newly appended session events and update promotion state. */
-function scanEvents(state, session) {
-  const events = session.events
+export function scanEvents(state, session) {
+  // DSH 0.1.2 removed the live `session.events` array. Prefer its immutable
+  // snapshot API while retaining the old path for the production RC line.
+  const events = typeof session.snapshotEvents === 'function'
+    ? session.snapshotEvents()
+    : Array.isArray(session.events) ? session.events : []
   for (; state.next < events.length; state.next += 1) {
     const event = events[state.next]
     if (event === undefined) continue

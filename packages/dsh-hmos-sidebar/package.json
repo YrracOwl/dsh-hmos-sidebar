@@ -1,6 +1,6 @@
 {
   "name": "dsh-hmos-sidebar",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Windows-only HarmonyOS developer workbench, 41 dcli tools, and native HarmonyOS agent presets for DeepSeek Harness.",
   "type": "module",
   "main": "lib/index.js",

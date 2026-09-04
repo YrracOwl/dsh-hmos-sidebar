@@ -1,5 +1,7 @@
 # dsh-hmos-sidebar
 
+> 0.3.1 修复：兼容 DSH 0.1.2 的 `session.snapshotEvents()`，避免「梁神+鸿蒙」预设在会话回合启动时因已移除的 `session.events` API 崩溃。
+
 HarmonyOS 开发工作台（DSH Web 悬浮窗，**Windows-only**）。一个 npm 包 = Host RPC + 41 个 `dcli__*` 模型工具 + 浏览器悬浮 UI。**工具、界面、命令通道单一分发单元**。
 
 > ⚠️ 平台：**Windows-only**（`package.json` 的 `"os": ["win32"]`、cordis.patch.yml 与本文一致）。不提供 POSIX/Linux/macOS 支持。npm 对 `os` 不匹配会 **EBADPLATFORM 硬拒**安装；若用 git/link 绕过，工具模块（`./tools`）在非 win32 上**不注册任何 `dcli__*`**（运行时守卫 `toolsSupportedOn`），host RPC 仍会挂载但各动作返回缺 CLI 的可操作错误。
