@@ -3,6 +3,12 @@ name: Release and publish dsh-hmos-sidebar
 on:
   push:
     tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing version tag to publish, for example v0.3.3'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -24,7 +30,7 @@ jobs:
       - name: Check out tagged source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.sha }}
           fetch-depth: 0
       - name: Set up Node.js
         uses: actions/setup-node@v4
