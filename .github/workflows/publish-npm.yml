@@ -57,7 +57,7 @@ jobs:
           Write-Host "HEAD=$(git rev-parse HEAD)"
           $version = node -p "require('./package.json').version"
           if ($version -ne ($env:GITHUB_REF_NAME -replace '^v', '')) { throw "Checked out package version $version does not match tag $env:GITHUB_REF_NAME" }
-          if (Select-String -Path 'test/index-rpc.test.mjs' -Pattern 'RUNNER~1' -Quiet) { throw 'Stale RUNNER~1 assertion detected in checked out tests' }
+          if (-not (Select-String -Path 'test/index-rpc.test.mjs' -Pattern 'nativeRealpath' -Quiet)) { throw 'Expected native Windows path assertion is missing' }
           if (-not (Select-String -Path 'test/index-rpc.test.mjs' -Pattern 'normalizedWinPath' -Quiet)) { throw 'Expected runner-independent path assertion is missing' }
 
       - name: Run tests

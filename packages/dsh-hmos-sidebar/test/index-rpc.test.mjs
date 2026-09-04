@@ -31,7 +31,7 @@ function normalizedWinPath(value) {
 // Windows exposes both the short 8.3 path (realpathSync) and the native long
 // path (realpathSync.native). Production code deliberately uses the native
 // form, so test expectations must resolve through the same API to avoid
-// runner-name differences such as RUNNER~1 versus RunnerAdmin.
+// runner-name differences between short and long Windows user paths.
 function nativeRealpath(value) {
   return fs.realpathSync.native ? fs.realpathSync.native(value) : fs.realpathSync(value)
 }
