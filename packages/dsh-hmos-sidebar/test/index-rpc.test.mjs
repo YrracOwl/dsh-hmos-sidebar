@@ -24,6 +24,10 @@ function tmpRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-hmos-index-'))
 }
 
+function normalizedWinPath(value) {
+  return value.replace(/\//g, '\\').toLowerCase()
+}
+
 test('defaultScreenshotDir is neutral (no D:/tmp), prefers config.screenshotDir', () => {
   const d = defaultScreenshotDir({ screenshotDir: 'C:\\shots' }, 'C:\\project')
   assert.equal(d, 'C:\\shots')
@@ -159,7 +163,7 @@ test('resolveRealWinPath resolves lexical .. and nearest-existing ancestor (no j
   const f = path.join(tmp, 'real.hap')
   fs.writeFileSync(f, 'x')
   try {
-    assert.equal(resolveRealWinPath(f).toLowerCase(), f.toLowerCase())
+    assert.equal(normalizedWinPath(resolveRealWinPath(f)), normalizedWinPath(fs.realpathSync(f)))
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true })
   }
@@ -291,8 +295,9 @@ test('findHarmonyProjectRoots detects current root and nested workspace projects
     fs.mkdirSync(path.join(nested, 'AppScope'), { recursive: true })
     fs.writeFileSync(path.join(nested, 'build-profile.json5'), '{}')
     fs.writeFileSync(path.join(nested, 'AppScope', 'app.json5'), '{}')
-    assert.deepEqual(findHarmonyProjectRoots(nested), [fs.realpathSync(nested).replace(/\//g, '\\')])
-    assert.deepEqual(findHarmonyProjectRoots(workspace), [fs.realpathSync(nested).replace(/\//g, '\\')])
+    const expected = normalizedWinPath(fs.realpathSync(nested))
+    assert.deepEqual(findHarmonyProjectRoots(nested).map(normalizedWinPath), [expected])
+    assert.deepEqual(findHarmonyProjectRoots(workspace).map(normalizedWinPath), [expected])
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true })
   }
@@ -310,7 +315,8 @@ test('findHarmonyProjectRoots skips heavy directories and respects depth', () =>
     fs.writeFileSync(path.join(deep, 'build-profile.json5'), '{}')
     fs.writeFileSync(path.join(deep, 'AppScope', 'app.json5'), '{}')
     assert.deepEqual(findHarmonyProjectRoots(workspace), [])
-    assert.deepEqual(findHarmonyProjectRoots(workspace, { maxDepth: 4 }), [fs.realpathSync(deep).replace(/\//g, '\\')])
+    const expected = normalizedWinPath(fs.realpathSync(deep))
+    assert.deepEqual(findHarmonyProjectRoots(workspace, { maxDepth: 4 }).map(normalizedWinPath), [expected])
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true })
   }
