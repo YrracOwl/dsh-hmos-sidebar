@@ -47,6 +47,8 @@
  * with the phase-1 quarantine and the stabilization controls above.
  */
 
+import { sessionEvents } from './dsh-compat.mjs'
+
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'anchored-tool-bootstrap'
 
@@ -256,11 +258,8 @@ function decidePromotion(state, config) {
 
 /** Scan newly appended session events and update promotion state. */
 export function scanEvents(state, session) {
-  // DSH 0.1.2 removed the live `session.events` array. Prefer its immutable
-  // snapshot API while retaining the old path for the production RC line.
-  const events = typeof session.snapshotEvents === 'function'
-    ? session.snapshotEvents()
-    : Array.isArray(session.events) ? session.events : []
+  // Route across DSH generations through the local compatibility layer.
+  const events = sessionEvents(session)
   for (; state.next < events.length; state.next += 1) {
     const event = events[state.next]
     if (event === undefined) continue

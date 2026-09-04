@@ -1,6 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { sessionEvents } from '../presets/liangshen-native-harmonyos/dsh-compat.mjs'
 import { scanEvents } from '../presets/liangshen-native-harmonyos/tool-bootstrap.mjs'
+
+test('compatibility layer prefers the new API and safely falls back', () => {
+  assert.equal(sessionEvents({ snapshotEvents: () => [1], events: [2] })[0], 1)
+  assert.deepEqual(sessionEvents({ events: [2] }), [2])
+  assert.deepEqual(sessionEvents({}), [])
+})
 
 function state() {
   return { next: 0, toolCalled: false, steps: 0, turnEnded: false, responded: false, anchored: false }

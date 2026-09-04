@@ -1,6 +1,6 @@
 {
   "name": "dsh-hmos-sidebar",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Windows-only HarmonyOS developer workbench, 41 dcli tools, and native HarmonyOS agent presets for DeepSeek Harness.",
   "type": "module",
   "main": "lib/index.js",
@@ -16,7 +16,7 @@
   "files": [
     "bin/",
     "lib/",
-    "presets/",
+    "presets",
     "cordis.patch.yml",
     "README.md",
     "LICENSE"
@@ -62,10 +62,10 @@
     "@modelcontextprotocol/sdk": "^1.12.0"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-tools": "^0.1.0-rc.7 || ^0.1.1-0"
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.7 || ^0.1.1-0 || ^0.1.2-rc.1"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-tools": "^0.1.0-rc.7 || ^0.1.1-0"
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.7 || ^0.1.1-0 || ^0.1.2-rc.1"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-tools": {

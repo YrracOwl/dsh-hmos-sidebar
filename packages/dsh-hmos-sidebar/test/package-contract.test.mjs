@@ -121,10 +121,9 @@ function satisfiesRange(version, range) {
 const peerRange = pkg.peerDependencies['@deepseek-ai/dsh-tools']
 
 test('optional peer @deepseek-ai/dsh-tools uses the clear prerelease-safe OR range', () => {
-  // `^0.1.0-rc.7` alone silently excludes every 0.1.1-x prerelease (semver
-  // prerelease opt-in), so the current DSH 0.1.1-rc.2 would fail the
-  // declaration. The second branch explicitly opts into the 0.1.1 tuple.
-  assert.equal(peerRange, '^0.1.0-rc.7 || ^0.1.1-0')
+  // Each prerelease line is explicitly opted into so npm can validate the
+  // migrated compatibility floor without silently excluding RC versions.
+  assert.equal(peerRange, '^0.1.0-rc.7 || ^0.1.1-0 || ^0.1.2-rc.1')
 })
 
 test('peer range covers the existing minimum 0.1.0-rc.7 and current DSH 0.1.1-rc.2', () => {
