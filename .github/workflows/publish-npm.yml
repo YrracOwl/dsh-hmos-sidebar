@@ -1,0 +1,45 @@
+name: Publish dsh-hmos-sidebar
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish-dsh-hmos-sidebar
+  cancel-in-progress: false
+
+jobs:
+  verify-and-publish:
+    if: github.event_name == 'workflow_dispatch' || github.event.release.target_commitish == github.ref_name
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/dsh-hmos-sidebar
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: packages/dsh-hmos-sidebar/package.json
+
+      - name: Install dependencies without lifecycle scripts
+        run: npm install --no-package-lock --ignore-scripts
+
+      - name: Run tests
+        run: npm test
+
+      - name: Verify package contents
+        run: npm pack --dry-run
+
+      - name: Publish with npm Trusted Publishing
+        run: npm publish --access public --provenance
