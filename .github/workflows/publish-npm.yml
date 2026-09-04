@@ -1,28 +1,29 @@
-name: Publish dsh-hmos-sidebar
+name: Release and publish dsh-hmos-sidebar
 
 on:
-  workflow_dispatch:
-  release:
-    types: [published]
+  push:
+    tags: ['v*.*.*']
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 concurrency:
-  group: npm-publish-dsh-hmos-sidebar
+  group: release-dsh-hmos-sidebar-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  verify-and-publish:
+  release-and-publish:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: packages/dsh-hmos-sidebar
     steps:
-      - name: Check out source
+      - name: Check out tagged source
         uses: actions/checkout@v4
-
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -30,15 +31,20 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: npm
           cache-dependency-path: packages/dsh-hmos-sidebar/package.json
-
       - name: Install dependencies without lifecycle scripts
         run: npm install --no-package-lock --ignore-scripts
-
       - name: Run tests
         run: npm test
-
       - name: Verify package contents
         run: npm pack --dry-run
-
+      - name: Create GitHub Release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = context.ref.replace('refs/tags/', '')
+            const { data: releases } = await github.rest.repos.listReleases({ owner: context.repo.owner, repo: context.repo.repo })
+            if (!releases.some((release) => release.tag_name === tag)) {
+              await github.rest.repos.createRelease({ owner: context.repo.owner, repo: context.repo.repo, tag_name: tag, target_commitish: context.sha, generate_release_notes: true })
+            }
       - name: Publish with npm Trusted Publishing
         run: npm publish --access public --provenance
