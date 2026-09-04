@@ -14,7 +14,9 @@ concurrency:
 
 jobs:
   release-and-publish:
-    runs-on: ubuntu-latest
+    # HarmonyOS package declares os: [win32] and its tests exercise Windows
+    # path, junction, and CLI behavior; Linux cannot install or validate it.
+    runs-on: windows-latest
     defaults:
       run:
         working-directory: packages/dsh-hmos-sidebar
