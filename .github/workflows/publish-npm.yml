@@ -15,7 +15,6 @@ concurrency:
 
 jobs:
   verify-and-publish:
-    if: github.event_name == 'workflow_dispatch' || github.event.release.target_commitish == github.ref_name
     runs-on: ubuntu-latest
     defaults:
       run:
