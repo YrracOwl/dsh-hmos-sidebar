@@ -2,7 +2,7 @@
 # preset's exact two tools (persistent `bash` plus `str_replace_editor`) and
 # the same one-line persona, with no runtime contexts and no injected pre-step
 # messages, anchoring the Minimal trajectory; after a stabilized anchor the
-# wire switches to PTC Mode (underlying Code Mode / run_code) and the ordinary injections open. The
+# wire switches to PTC Mode (`run_code`) and the ordinary injections open. The
 # phase-1 surface matches the official "exact RL prompt and schemas" snapshot
 # byte-for-byte on the model-visible wire shape, at the cost of keeping the
 # persistent shell for the whole session. Unlike the builtin Minimal preset,
@@ -78,12 +78,12 @@
     compactionTools: [read, write, edit, glob, grep, todo_write, ask_user_question]
     deferredSources: [agent-instructions, skill-catalog]
     deferredGraceSteps: 1
-    promotedPresentation: code
+    promotedPresentation: ptc
     promotedPersonaText: >-
       你是一名原生鸿蒙（HarmonyOS）应用开发专家。
 
       执行形态：PTC 模式——计划阶段用 plan mode（exit_plan_mode 提交完整计划），
-      追踪用 todo_write，编码用 PTC Mode：通过底层 Code Mode SDK 的 run_code 编写 TypeScript 程序组合多步操作
+      追踪用 todo_write，编码用 PTC Mode：通过 PTC SDK 的 run_code 编写 TypeScript 程序组合多步操作
       （一个程序内多次 SDK 工具调用，一次往返完成；SDK 覆盖全部工具，含 41 个 dcli__*）。
 
       最高优先级规则：

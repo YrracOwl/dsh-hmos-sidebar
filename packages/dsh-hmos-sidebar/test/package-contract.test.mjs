@@ -169,3 +169,28 @@ test('Windows-only, exports, and tools-separation contracts unchanged', () => {
   assert.match(indexSource, /export const inject = \['webServer', 'subprocess'\]/)
   assert.doesNotMatch(indexSource, /\.tools\.register/)
 })
+
+test('bundled HarmonyOS presets use the current ptc presentation identifier', () => {
+  const nativeComposition = fs.readFileSync(
+    path.join(packageRoot, 'presets', 'native-harmonyos', 'agent.cordis.yml'),
+    'utf8',
+  )
+  const liangshenComposition = fs.readFileSync(
+    path.join(packageRoot, 'presets', 'liangshen-native-harmonyos', 'agent.cordis.yml'),
+    'utf8',
+  )
+  const bootstrapSource = fs.readFileSync(
+    path.join(packageRoot, 'presets', 'liangshen-native-harmonyos', 'tool-bootstrap.mjs'),
+    'utf8',
+  )
+
+  assert.match(nativeComposition, /^\s+mode: ptc$/m)
+  assert.match(liangshenComposition, /^\s+promotedPresentation: ptc$/m)
+  assert.match(bootstrapSource, /tools\.presentAs\('ptc'\)/)
+  assert.match(bootstrapSource, /promotedPresentation must be "native" or "ptc"/)
+
+  for (const source of [nativeComposition, liangshenComposition, bootstrapSource]) {
+    assert.doesNotMatch(source, /(?:mode|promotedPresentation): code\b/)
+    assert.doesNotMatch(source, /presentAs\(['"]code['"]\)/)
+  }
+})

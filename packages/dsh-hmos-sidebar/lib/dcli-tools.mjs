@@ -1249,7 +1249,7 @@ export function applyForPlatform(ctx, config, platform) {
     }
   }
 
-  // PTC Mode 兼容（底层 Code Mode / run_code）：绑定桥要求工具参数必须是 lossless JSON，模型省略参数
+  // PTC Mode 兼容（run_code）：绑定桥要求工具参数必须是 lossless JSON，模型省略参数
   // （tools.name() 传 undefined）会被拒。给无参工具注入一个可选 exec 字段，让 SDK
   // 签名非空、模型更倾向传参数对象（{} 或 { exec: ... }）；executor 一律忽略该字段。
   // TOOLS 的 parameters 是参数 spec 格式（字段映射），无参工具为空对象 {}。

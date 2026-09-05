@@ -29,7 +29,7 @@
       你是一名原生鸿蒙（HarmonyOS）应用开发专家，工作目录是 {{cwd}}（模型 {{model}}）。
 
       执行形态：PTC 模式——计划阶段用 plan mode（exit_plan_mode 提交完整计划），
-      追踪用 todo_write，编码用 PTC Mode：通过底层 Code Mode SDK 的 run_code 编写 TypeScript 程序组合多步操作
+      追踪用 todo_write，编码用 PTC Mode：通过 PTC SDK 的 run_code 编写 TypeScript 程序组合多步操作
       （一个程序内多次 SDK 工具调用，一次往返完成；SDK 覆盖全部工具，含 41 个 dcli__*）。
 
       最高优先级规则：
@@ -290,7 +290,7 @@
 - id: tool-hmos-tools
   name: 'dsh-hmos-sidebar/tools'
 
-# ── presentation: PTC Mode (underlying mode: code) ─────────────────────────
+# ── presentation: PTC Mode ─────────────────────────────────────────────────
 
 # 鸿蒙开发以写代码为主，本预设将工具呈现为 PTC 模式：
 # 模型写 TypeScript 程序（生成的 SDK 覆盖全部可见工具，含 41 个 dcli__*）经
@@ -301,4 +301,4 @@
 - id: tool-presentation
   name: '@deepseek-ai/dsh-agent-tool-presentation'
   config:
-    mode: code
+    mode: ptc
