@@ -16,8 +16,9 @@ Never register the model tools from the main bundle. Never accept arbitrary argv
 - `lib/index.js`: Host route fence, body limit, action validation, path containment, device/build/deploy operations.
 - `lib/client.js`: Shadow-DOM workbench, current-session cwd handling, bounded project discovery, persisted geometry.
 - `lib/dcli-tools.mjs`: tool definitions and tool implementations.
-- `bin/dsh-hmos-sidebar.mjs`: explicit `install-presets` CLI with conflict protection and backups.
-- `presets/`: the two bundled user-level HarmonyOS agent presets.
+- `bin/dsh-hmos-sidebar.mjs`: explicit `install-presets` CLI with conflict protection and backups; this is the supported path for refreshing deployed preset copies after a package upgrade.
+- `presets/native-harmonyos/agent.cordis.yml`: direct PTC presentation preset.
+- `presets/liangshen-native-harmonyos/agent.cordis.yml` and `tool-bootstrap.mjs`: deferred Liangshen promotion and its per-session PTC switch. These files are the authoritative sources for both npm-bundled presets; user-level copies are deployment artifacts.
 - `lib/dual-signing.js`: preview-first dual-signing merge and backup behavior.
 - `lib/validate.js`: shared validation helpers.
 - `cordis.patch.yml`: main Host+Client row only; no personal paths and no tools row.
@@ -33,6 +34,8 @@ Never register the model tools from the main bundle. Never accept arbitrary argv
 - `dcli__agents_md` is preview-first (`apply=false`), owns only its unique managed-marker block, preserves all text outside it, rejects malformed/duplicate markers, and uses a one-time backup plus atomic replacement when applying.
 - The UI is independent of better-sidebar and must remain usable when DevEco/CLI is absent; errors must be actionable.
 - Settings namespace `hmos-sidebar` owns exactly two booleans, `popup.keepCollapsed` and `ball.hideWithoutProject`, both defaulting to `true` (quiet mode: no auto-expand popup; ball hidden until a HarmonyOS project is probed). Host registration is an optional nested `ctx.inject(['settings'])`; the client reads the same values via `settingsScope` and falls back to identical defaults when the service is absent or not ready. Never add a second persistence path for these flags.
+- DSH tool-presentation identifiers are `native`, `ptc`, and `both`; never reintroduce the removed `code` identifier. `native-harmonyos` must declare `mode: ptc`; Liangshen must keep `promotedPresentation: ptc`, validate `native | ptc`, and call `tools.presentAs('ptc')` after promotion.
+- A profile package upgrade does not update existing user preset copies. Publish the corrected presets first, then run `pnpm exec dsh-hmos-sidebar install-presets --all --force` from the target profile directory so the profile's installed package owns conflict handling and backups.
 
 ## Validation
 
@@ -45,6 +48,7 @@ node --check lib/client.js
 node --check lib/dcli-tools.mjs
 node --check lib/environment.js
 node --check lib/dual-signing.js
+node --check presets/liangshen-native-harmonyos/tool-bootstrap.mjs
 npm pack --dry-run
 ```
 
@@ -54,6 +58,7 @@ For Web changes, reconcile with `dsh plugin --profile web add .`, restart the ex
 
 - Package documentation historically said 40 tools while implementation/tests may assert 41; treat executable definitions/tests as source of truth and keep docs synchronized.
 - Main bundle mounting and preset tool mounting are separate lifecycle units; a working panel does not prove tools are visible to an agent.
+- When either bundled preset changes, update its composition and any custom bootstrap together, retain the PTC source assertions in `test/package-contract.test.mjs`, confirm both preset trees appear in `npm pack --dry-run`, and follow the repository-level version/tag workflow in `../../AGENTS.md`.
 - `process.cwd()` is a fallback project candidate, not an automatically trusted path-fence root.
 - Do not add POSIX fallbacks that imply support; npm `EBADPLATFORM` and runtime guards are deliberate.
 - For local development, use the package root as the working directory; do not hard-code a machine-specific path in source or published documentation.
