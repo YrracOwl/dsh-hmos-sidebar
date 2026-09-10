@@ -21,7 +21,7 @@ packages/dsh-hmos-sidebar/            npm 包：DSH 插件、41 个 dcli__* 工�
 
 ### 方式一：从 npm 安装（推荐）
 
-当前公开版本：[`dsh-hmos-sidebar@0.3.0`](https://www.npmjs.com/package/dsh-hmos-sidebar)
+当前公开版本：[`dsh-hmos-sidebar@0.3.11`](https://www.npmjs.com/package/dsh-hmos-sidebar)
 
 将插件安装到需要使用的 DSH Profile。以下示例使用 `web`：
 

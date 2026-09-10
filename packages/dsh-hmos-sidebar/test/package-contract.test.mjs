@@ -194,3 +194,32 @@ test('bundled HarmonyOS presets use the current ptc presentation identifier', ()
     assert.doesNotMatch(source, /presentAs\(['"]code['"]\)/)
   }
 })
+
+test('bundled HarmonyOS presets use the current dsh-persona config contract', () => {
+  const presets = ['native-harmonyos', 'liangshen-native-harmonyos']
+  for (const preset of presets) {
+    const composition = fs.readFileSync(
+      path.join(packageRoot, 'presets', preset, 'agent.cordis.yml'),
+      'utf8',
+    )
+    // The persona row plus its config block: from its `- id: persona` row up to
+    // the next top-level row. Every line in between is indented.
+    const row = /\n- id: persona\n(?:[ \t].*\n|\n)*/.exec(composition)
+    assert.ok(row, preset + ': expected a persona row')
+
+    // `prefix` is REQUIRED since @deepseek-ai/dsh-persona 0.1.5-rc.1; the
+    // pre-0.1.5 `text` key is unrecognized, so the mount fails with
+    // "- $.prefix missing required value (at prefix)" and the preset cannot be
+    // switched to at all.
+    assert.match(row[0], /^\s+prefix: /m, preset + ': persona config needs the required `prefix` key')
+    assert.doesNotMatch(row[0], /^\s+text: /m, preset + ': the pre-0.1.5 `text` persona key is not a valid config key')
+  }
+
+  // The Liangshen bootstrap filters the phase-1 assembly by section name, so it
+  // must know the split persona-section names of the installed host.
+  const bootstrapSource = fs.readFileSync(
+    path.join(packageRoot, 'presets', 'liangshen-native-harmonyos', 'tool-bootstrap.mjs'),
+    'utf8',
+  )
+  assert.match(bootstrapSource, /PERSONA_SECTION_NAMES = new Set\(\['deployment:persona-prefix', 'deployment:persona', 'persona'\]\)/)
+})

@@ -57,12 +57,14 @@ export const inject = ['systemPrompt', 'tools']
 
 /**
  * Prompt section names that carry the preset persona. The `dsh-persona` row
- * registers the preset persona as `deployment:persona` (the PERSONA_SECTION
- * name of `@deepseek-ai/dsh-system-prompt`), shadowing the deployment
- * default for the preset scope; `persona` is the legacy name kept for older
- * harnesses that registered the persona section without the prefix.
+ * registers the preset persona as `deployment:persona-prefix` — the
+ * PERSONA_PREFIX_SECTION name of `@deepseek-ai/dsh-system-prompt` since DSH
+ * 0.1.5-rc.1, which split the persona section into prefix and suffix halves —
+ * shadowing the deployment default for the preset scope. `deployment:persona`
+ * is the pre-0.1.5 name and `persona` the older unprefixed one; both stay
+ * here so the row keeps working if a harness registers either.
  */
-const PERSONA_SECTION_NAMES = new Set(['deployment:persona', 'persona'])
+const PERSONA_SECTION_NAMES = new Set(['deployment:persona-prefix', 'deployment:persona', 'persona'])
 
 /**
  * Workspace line a promoted persona gains. Phase 1 keeps the exact one-line

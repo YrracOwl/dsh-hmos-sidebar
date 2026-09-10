@@ -22,10 +22,17 @@
 
 # The preset's own persona, shadowing the deployment default for this agent.
 # `{{model}}` and `{{cwd}}` resolve from the agent's own route and workspace.
+#
+# The `dsh-persona` row's config is `prefix` / `suffix` / `complete` /
+# `includeRuntimeContext` (the 0.1.5-rc.1 contract, which split the persona into
+# prefix and suffix prompt sections). Do NOT go back to the pre-0.1.5 `text` key:
+# it is unrecognized, so the mount fails with
+# "- $.prefix missing required value (at prefix)" and the preset cannot be
+# switched to at all. `{{cwd}}` / `{{model}}` still interpolate in either half.
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    text: >-
+    prefix: >-
       你是一名原生鸿蒙（HarmonyOS）应用开发专家，工作目录是 {{cwd}}（模型 {{model}}）。
 
       执行形态：PTC 模式——计划阶段用 plan mode（exit_plan_mode 提交完整计划），

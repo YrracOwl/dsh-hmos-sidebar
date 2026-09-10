@@ -2,7 +2,7 @@
 
 ## English
 
-**Current release: 0.3.7** — includes the legacy-host startup fix and runner-independent Windows path tests.
+**Current release: 0.3.11** — bundles HarmonyOS presets that mount on DSH `0.1.5-rc.1` and later: the persona row uses `@deepseek-ai/dsh-persona`'s required `prefix` key, and the Liangshen bootstrap knows the split `deployment:persona-prefix` section name.
 
 A Windows-only HarmonyOS development workbench for DeepSeek Harness Web. One package bundles the Host RPC, 41 `dcli__*` tools, floating Web UI, and two installable HarmonyOS agent presets: `native-harmonyos` and `liangshen-native-harmonyos`. The Liangshen preset uses a capability-detected compatibility layer: DSH 0.1.2+ uses `session.snapshotEvents()`, while older RC releases fall back to `session.events`.
 
@@ -10,6 +10,8 @@ Install with `dsh plugin --profile web add dsh-hmos-sidebar`, then run `npx --ye
 
 ## 中文
 
+> 0.3.11 预设挂载修复：`@deepseek-ai/dsh-persona` 自 DSH 0.1.5-rc.1 起把 persona 配置改为**必填** `prefix`（旧 `text` 键被删除，且报 `$.prefix missing required value` 导致预设无法切换），persona 提示段名也从 `deployment:persona` 拆为 `deployment:persona-prefix` / `deployment:persona-suffix`；两个内置预设与 `tool-bootstrap.mjs` 的段名白名单已同步。
+>
 > 0.3.2 兼容层：按能力检测选择 DSH 0.1.2 的 `session.snapshotEvents()` 或旧版 `session.events`，避免「梁神+鸿蒙」预设在会话回合启动时因 API 变更崩溃；并明确声明支持 DSH 0.1.2-rc.1。
 
 HarmonyOS 开发工作台（DSH Web 悬浮窗，**Windows-only**）。一个 npm 包 = Host RPC + 41 个 `dcli__*` 模型工具 + 浏览器悬浮 UI。**工具、界面、命令通道单一分发单元**。
