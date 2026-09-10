@@ -2,7 +2,7 @@
 
 ## English
 
-**Current release: 0.3.12** — bundles HarmonyOS presets that mount on DSH `0.1.5-rc.1` and later: the persona row uses `@deepseek-ai/dsh-persona`'s required `prefix` key, and the Liangshen bootstrap knows the split `deployment:persona-prefix` section name. (0.3.11 carried the same fix but never published: its release run failed on a line-ending assumption in the new contract test.)
+**Current release: 0.3.13** — documentation only: the package README now states the supported install path (`dsh plugin --profile web add dsh-hmos-sidebar`, then `npx --yes dsh-hmos-sidebar install-presets`) next to the preset refresh commands. No behavior change since 0.3.12, which fixed the DSH `0.1.5-rc.1` persona contract.
 
 A Windows-only HarmonyOS development workbench for DeepSeek Harness Web. One package bundles the Host RPC, 41 `dcli__*` tools, floating Web UI, and two installable HarmonyOS agent presets: `native-harmonyos` and `liangshen-native-harmonyos`. The Liangshen preset uses a capability-detected compatibility layer: DSH 0.1.2+ uses `session.snapshotEvents()`, while older RC releases fall back to `session.events`.
 
