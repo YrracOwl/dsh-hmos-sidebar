@@ -154,7 +154,6 @@ test('Windows-only, exports, and tools-separation contracts unchanged', () => {
   assert.equal(pkg.exports['./client'], './lib/client.js')
   assert.equal(pkg.exports['./tools'], './lib/dcli-tools.mjs')
   assert.equal(pkg.exports['./package.json'], './package.json')
-
   // The peer stays optional and is never a hard dependency: dsh-tools is the
   // DSH shared host package and must not be copied/shadowed by this plugin.
   assert.equal(pkg.peerDependenciesMeta['@deepseek-ai/dsh-tools'].optional, true)
@@ -331,5 +330,71 @@ test('Liangshen preset modules are reachable as package subpaths', () => {
   assert.match(
     fs.readFileSync(path.join(packageRoot, 'presets', 'liangshen-native-harmonyos', 'tool-bootstrap.mjs'), 'utf8'),
     /import \{ sessionEvents \} from '\.\/dsh-compat\.mjs'/,
+  )
+})
+
+// ---------------------------------------------------------------------------
+// Host settings on the 0.1.7 corridor
+//
+// `ctx.settings.register` exists only on ≤ 0.1.5. On 0.1.7+ a settings namespace
+// IS the plugin entry's own `Config`, keyed by the loader entry id, and only
+// `.volatile()` fields are exposed — an entry with no volatile field gets no form
+// at all. `volatile()` itself arrives with schemastery 3.18.4 on that corridor
+// while the 0.1.5 line resolves 3.18.2, so the marker must be applied by
+// capability; calling it unconditionally throws at module load and takes the
+// whole host half down.
+// ---------------------------------------------------------------------------
+
+test('host half declares a capability-detected volatile Config for the newer settings host', () => {
+  const source = fs.readFileSync(path.join(packageRoot, 'lib', 'index.js'), 'utf8')
+
+  // The namespace on 0.1.7+ is the entry Config, keyed by this row's id.
+  assert.equal(
+    /- id: ([\w-]+)\n\s+name: 'dsh-hmos-sidebar'/.exec(
+      fs.readFileSync(path.join(packageRoot, 'cordis.patch.yml'), 'utf8'),
+    )?.[1],
+    'dsh-hmos-sidebar',
+    'the loader entry id is the ≥ 0.1.7 namespace; the client must look it up by this id',
+  )
+  assert.match(source, /^export const Config = Schema\.object\(\{/m, 'host half must export the entry Config')
+  assert.match(
+    source,
+    /typeof schema\?\.volatile === 'function' \? schema\.volatile\(\) : schema/,
+    'volatile() must be applied only when the installed schemastery provides it',
+  )
+  assert.doesNotMatch(
+    source,
+    /\.default\([^\n]*\)\.volatile\(\)/,
+    'never call .volatile() unconditionally: the 0.1.5 schemastery has no such method',
+  )
+
+  // The optional settings transport must never become a hard inject gate.
+  assert.match(source, /^export const inject = \['webServer', 'subprocess'\]$/m)
+  assert.doesNotMatch(source, /export const inject = \[[^\]]*'settings'/)
+
+  // Declarative host: declare that this plugin renders its own page, so the
+  // official UI does not also generate a generic form beside the card.
+  assert.match(source, /typeof settingsApi\.configure === 'function'/, 'configure must be capability-detected too')
+  assert.match(source, /configure\(\{ auto: false \}, ctx\.fiber\)/, 'owner must be this plugin fiber, not the inject child')
+})
+
+test('the host Config loads and resolves on the installed schemastery line', async () => {
+  // Executable evidence, not a source assertion: import the real host half and
+  // resolve an empty entry config. On this 0.1.5 machine that exercises the
+  // no-volatile path, which is the one that would throw if the marker were
+  // unconditional.
+  const host = await import('../lib/index.js')
+  assert.equal(host.name, 'dsh-hmos-sidebar')
+  assert.ok(host.Config, 'Config must be exported')
+  // A schemastery schema is a callable object, not a plain one.
+  assert.ok(['function', 'object'].includes(typeof host.Config), 'Config must be a schema')
+  const value = host.Config({})
+  // Version-agnostic on purpose: on the 0.1.5 line (no `volatile`) the leaves are
+  // plain booleans, while a 3.18.4 install wraps each volatile leaf. Both must
+  // carry the same two default-true switches the client reads.
+  const read = (v) => (v !== null && typeof v === 'object' && typeof v.get === 'function' && Symbol.for('cosmokit.volatile.write') in v ? v.get() : v)
+  assert.deepEqual(
+    { popup: { keepCollapsed: read(value.popup.keepCollapsed) }, ball: { hideWithoutProject: read(value.ball.hideWithoutProject) } },
+    { popup: { keepCollapsed: true }, ball: { hideWithoutProject: true } },
   )
 })

@@ -42,7 +42,7 @@ HarmonyOS 开发工作台（DSH Web 悬浮窗，**Windows-only**）。一个 npm
 | 默认不展开弹窗（`popup.keepCollapsed`） | 开 | 即使当前工作区探测到鸿蒙工程也不自动展开面板；关闭后，探测到鸿蒙工程时自动展开一次 |
 | 在非鸿蒙工作区，默认不展示悬浮球（`ball.hideWithoutProject`） | 开 | 当前工作区未探测到鸿蒙工程则隐藏悬浮球（探测完成前同样隐藏）；关闭后悬浮球始终显示 |
 
-- 开关通过官方 settings 服务持久化（保存/放弃修改/恢复默认/只读提示与官方卡片一致），客户端经 `settingsScope` 实时订阅生效。
+- 开关通过官方 settings 服务持久化（保存/放弃修改/恢复默认/只读提示与官方卡片一致）。两代宿主的通道不同：≤ 0.1.5 由 host 注册 `hmos-sidebar` 命名空间、客户端经 `settingsScope` 订阅；≥ 0.1.7 没有 `register`，命名空间就是本插件入口导出的 `Config`（键为 loader entry id `dsh-hmos-sidebar`，两个叶子标记 `volatile`），客户端经 `configForms` 读同一份值。
 - 设置服务不可用时整体回退到上表默认值，主功能不受影响。
 
 ## 工具与 RPC 的分离

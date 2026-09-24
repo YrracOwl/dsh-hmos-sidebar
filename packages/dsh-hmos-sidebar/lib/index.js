@@ -59,6 +59,35 @@ function createSettingsSchema() {
   })
 }
 
+// schemastery ≥ 3.18.4（0.1.7 线）用 `.volatile()` 标记「运行期可改」的字段；
+// 0.1.5 线解析到的 3.18.2 没有这个方法，那里同一个字段由 createSettingsSchema()
+// 的命名空间承载。按**能力**探测而不是判版本，才能让同一个 schema 表达式在两代
+// 宿主上都合法——版本分支做不到，因为 Config 在模块加载时就要定型，而那时调用
+// 不存在的 .volatile() 会直接抛错、整个 host 半挂载失败。
+function volatileField(schema) {
+  return typeof schema?.volatile === 'function' ? schema.volatile() : schema
+}
+
+// 0.1.7+ 的声明式宿主没有 ctx.settings.register：一个设置命名空间只存在于
+// 「插件入口自己的 Config」里，键就是 loader entry id（本插件即 cordis.patch.yml
+// 中的 `dsh-hmos-sidebar`）。因此这份 Config 同时承担两件事：
+//   - ≤ 0.1.5：校验入口 config（本行不传任何字段，全部走默认值）；
+//   - ≥ 0.1.7：定义设置页。**只有 volatile 字段可见可写**，且没有任何 volatile
+//     字段的入口根本不会进入 describe()，客户端的 configForms.get(entryId)
+//     也就拿不到表。
+// 字段名与嵌套必须与 createSettingsSchema() 完全一致：客户端按
+// popup.keepCollapsed / ball.hideWithoutProject 读取，两代宿主共用同一份读法。
+// （volatile 只能落在「固定对象路径」上，且不能 volatile 套 volatile——这里两个
+// 叶子各自 volatile，外层对象不标记。）
+export const Config = Schema.object({
+  popup: Schema.object({
+    keepCollapsed: volatileField(Schema.boolean().default(DEFAULT_SETTINGS.popup.keepCollapsed)),
+  }).default(cloneSettings(DEFAULT_SETTINGS.popup)),
+  ball: Schema.object({
+    hideWithoutProject: volatileField(Schema.boolean().default(DEFAULT_SETTINGS.ball.hideWithoutProject)),
+  }).default(cloneSettings(DEFAULT_SETTINGS.ball)),
+})
+
 function validateSettings(value) {
   if (!isPlainObject(value)) throw new Error('settings must be a JSON object')
   if (!isPlainObject(value.popup) || typeof value.popup.keepCollapsed !== 'boolean') {
@@ -281,18 +310,38 @@ export function apply(ctx, config) {
   const env = () => resolveEnv(config || {})
   const sub = ctx.subprocess
 
-  // 官方设置（设置 → 插件 → HarmonyOS 工作台）：注册命名空间供设置卡片读写，
-  // 客户端半直接通过 settingsScope 订阅解析值。settings 服务缺失时静默跳过——
-  // 悬浮球/弹窗回退到 DEFAULT_SETTINGS 的安静默认值，主功能不受影响。
+  // 官方设置（设置 → 插件 → HarmonyOS 工作台）：两代宿主两条路。
+  //   ≤ 0.1.5  ctx.settings.register(SETTINGS_NS, schema) 注册命名空间，客户端用
+  //            settingsScope.bind({ namespace: 'hmos-sidebar' }) 订阅解析值。
+  //   ≥ 0.1.7  register() 已移除：命名空间就是本入口的 Config（见文件上方的
+  //            `Config` 具名导出），客户端改用 configForms.get('dsh-hmos-sidebar')。
+  //            宿主侧不读写任何值——持久化由 settings 服务写进 profile 的
+  //            cordis.patch.yml，客户端直接读表——所以这里只需声明「本插件自带
+  //            页面」，免得官方 UI 再生成一个通用表单与卡片重复。
+  // 两代都保持可选：settings 服务（或对应方法）不存在时静默跳过，客户端回退到
+  // DEFAULT_SETTINGS 的安静默认值，悬浮球/弹窗主功能不受影响。
   ctx.inject(['settings'], (sctx) => {
-    try {
-      sctx.settings.register(SETTINGS_NS, createSettingsSchema(), {
-        base: cloneSettings(DEFAULT_SETTINGS),
-        applies: 'live',
-        validate: validateSettings,
-      })
-    } catch {
-      // 设置保持可选：重复注册或服务异常时，客户端仍按默认值工作。
+    const settingsApi = sctx.settings
+    if (settingsApi && typeof settingsApi.register === 'function') {
+      try {
+        settingsApi.register(SETTINGS_NS, createSettingsSchema(), {
+          base: cloneSettings(DEFAULT_SETTINGS),
+          applies: 'live',
+          validate: validateSettings,
+        })
+      } catch {
+        // 设置保持可选：重复注册或服务异常时，客户端仍按默认值工作。
+      }
+      return
+    }
+    if (settingsApi && typeof settingsApi.configure === 'function') {
+      try {
+        // owner 必须显式传本插件的 fiber：configure 以 fiber 为键记录页面策略，
+        // 而 sctx 是 ctx.inject 的子 fiber，默认值不会指向本入口。
+        sctx.effect(() => settingsApi.configure({ auto: false }, ctx.fiber))
+      } catch {
+        // 同一实例已有页面策略时忽略；客户端仍按默认值工作。
+      }
     }
   })
 
