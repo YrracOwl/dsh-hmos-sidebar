@@ -378,3 +378,15 @@
 # Native HarmonyOS development tools, including dcli__* commands.
 - id: tool-hmos-tools
   name: 'dsh-hmos-sidebar/tools'
+
+# ⚠ 宿主升级到 0.1.7-rc.1 的前置条件（本文件目前只在 ≤ 0.1.5 上可挂载）：
+#   1) 本 preset 是「目录型 preset」，而 0.1.7-rc.1 已移除目录型 preset，改为在
+#      profile patch 中用 `@deepseek-ai/dsh-agent-preset` 声明 identity + 子插件
+#      列表（见上游 .agents/notes/implemented/architecture/2026-09-18-declarative-agent-presets.md）。
+#      升级时必须把本文件整体改写成该声明形式；preset.yml、skills/ 目录，以及
+#      `tool-bootstrap.mjs` 的 deferred 提升逻辑都要一并重新承载。
+#   2) 上面 workflow-worker-thread 行引用的
+#      `@deepseek-ai/dsh-workflow-worker-thread` 在 0.1.7-rc.1 已更名为
+#      `@deepseek-ai/dsh-workflow-ptc`（默认导出 PtcWorkflowEngine），且不提供兼容别名；
+#      改写时同时把行 id 改为 workflow-ptc、name 改为 `@deepseek-ai/dsh-workflow-ptc`
+#      （config.provider: spawn 不变）。

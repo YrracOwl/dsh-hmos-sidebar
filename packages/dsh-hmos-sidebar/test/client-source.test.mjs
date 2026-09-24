@@ -41,11 +41,24 @@ test('panel auto-expands only when 默认不展开弹窗 is OFF and a project wa
   assert.match(source, /if \(found && settingsRef\.current\.keepCollapsed === false && !openRef\.current\) setOpen\(true\)/)
 })
 
-test('settings scope stays optional (absent service degrades to defaults)', () => {
-  assert.match(source, /const binder = ctx\.get\('settingsScope'\)/)
+test('settings scope stays optional and is never a hard inject gate', () => {
+  // 两个设置传输都**不能**出现在 exports.inject 里：cordis 把每个 inject 名当作
+  // 硬门槛（Fiber._refresh() 在任一名无提供者时把 fiber 置为 INACTIVE），声明可选
+  // 传输会让插件永久 pending，并让整个 Web boot 报
+  // "N entries did not activate / waiting for service: configForms"。
+  // 可选性由 apply 内的 ctx.inject([...], cb) 非阻塞等待保证。
+  assert.match(source, /function resolveSettingsScopeFrom\(sctx\)/)
+  assert.match(source, /ctx\.inject\(\['settingsScope'\], registerCard\)/)
+  assert.match(source, /ctx\.inject\(\['configForms'\]/)
   assert.match(source, /const connection = ctx\.get\('connection'\)/)
-  assert.doesNotMatch(source, /inject: \['slots', 'settingsScope'\]/,
-    'settingsScope must stay optional: no hard injection of it')
+  assert.match(source, /exports\.inject = \['slots'\]/)
+  assert.doesNotMatch(source, /exports\.inject = \[[^\]]*settingsScope/)
+  assert.doesNotMatch(source, /exports\.inject = \[[^\]]*configForms/)
+  // 卡片必须在「拥有设置传输的上下文」里注册，否则「设置 → 插件」页的账本看不到它：
+  // 该页在自己的上下文里读 ctx.slots.entries('settings.plugin.item')，会拿到空数组，
+  // 卡片永远不渲染，尽管 register 正常返回。
+  assert.match(source, /sctx\.slots\.inject\('settings\.plugin\.item'/)
+  assert.doesNotMatch(source, /^\s{6}ctx\.slots\.inject\('settings\.plugin\.item'/m)
 })
 
 test('client resolves the current session cwd and probes it', () => {
@@ -171,7 +184,14 @@ function loadClientDragApi() {
 }
 
 function fakeCtx() {
+  // 默认没有任何可选服务：apply 必须在 settingsScope / configForms 缺失时照常工作。
+  // 测试通过 ctx.services 注入可选服务；ctx.get 与 ctx.inject 共用同一张表。
+  const lookup = (name) => {
+    const svc = ctx.services ? ctx.services[name] : undefined
+    return typeof svc === 'function' ? svc() : svc
+  }
   const ctx = {
+    services: {},
     slotNames: [],
     registrations: [],
     effectCleanups: [],
@@ -185,8 +205,16 @@ function fakeCtx() {
         ctx.registrations.push(options)
       },
     },
-    // 默认没有任何可选服务：apply 必须在 settingsScope/connection 缺失时照常工作。
-    get() { return undefined },
+    get(name) { return lookup(name) },
+    // 可选、非阻塞的传输等待：cordis 的 ctx.inject(names, cb) 只在服务就绪时触发
+    // 回调；这里同步调用，让 resolveSettingsScopeFrom 立即解析。子上下文必须同时
+    // 提供 get 与 slots —— 设置卡片正是通过 sctx.slots 注册到 scoped 上下文，
+    // 这样「设置 → 插件」页的账本才看得到它。
+    inject(names, callback) {
+      const list = Array.isArray(names) ? names : [names]
+      if (!list.some((n) => lookup(n) !== undefined)) return
+      callback({ get: (n) => lookup(n), slots: ctx.slots })
+    },
     // apply 注册多个 effect（拖拽兜底 + 设置卡片样式清理）：聚合所有清理函数，
     // effectCleanup() 一次性全部执行，模拟 Cordis 卸载路径。
     effect(fn) {
@@ -215,6 +243,10 @@ function fakeEvent(x, y, target) {
 test('panel drag: normal mouseup removes document listeners idempotently and restores body state', () => {
   const { api, apply, document: doc } = loadClientDragApi()
   const ctx = fakeCtx()
+  // 设置卡片只在设置传输存在时注册（它属于传输），这里给出传输以便断言两张表都就位。
+  ctx.services = {
+    settingsScope: () => ({ bind: (spec) => ({ namespace: spec.namespace }) }),
+  }
   const dispose = apply(ctx)
   assert.ok(ctx.slotNames.includes('shell.overlay'))
   assert.deepEqual(ctx.slotNames.slice().sort(), ['settings.plugin.item', 'shell.overlay'],
@@ -347,12 +379,12 @@ test('apply binds the hmos-sidebar settings scope and registers the settings car
   const { apply } = loadClientDragApi()
   const ctx = fakeCtx()
   const bound = []
-  ctx.get = (name) => {
-    if (name === 'settingsScope') {
-      return { bind: (spec) => { bound.push(spec); return { namespace: spec.namespace } } }
-    }
-    if (name === 'connection') return { api: { settings: {} } }
-    return undefined
+  // 可选服务表：settingsScope / connection 由 ctx.get 与 ctx.inject 共用。
+  ctx.services = {
+    settingsScope: () => ({
+      bind: (spec) => { bound.push(spec); return { namespace: spec.namespace } },
+    }),
+    connection: () => ({ api: { settings: {} } }),
   }
   const dispose = apply(ctx)
   // bound 的对象创建于 vm realm，不能与宿主 realm 对象做 deepEqual（原型不同）。
@@ -361,10 +393,31 @@ test('apply binds the hmos-sidebar settings scope and registers the settings car
   const cardReg = ctx.registrations.find((r) => r.name === 'settings.plugin.item')
   assert.ok(cardReg, 'settings card registered')
   assert.equal(cardReg.key, 'hmos-sidebar')
+  // 惰性绑定的证明：注册选项里没有捕获的 scope（getter 在组件工厂闭包里，见源码断言），
+  // 且 getter 不会被重复求值 —— 设置传输从头到尾只 bind 一次。
+  assert.equal(cardReg.scope, undefined, 'registration must not capture a scope value')
+  assert.equal(bound.length, 1, 'scope bound exactly once (lazy getter, no re-bind)')
   const overlayReg = ctx.registrations.find((r) => r.name === 'shell.overlay')
   assert.ok(overlayReg && overlayReg.id === 'dsh-hmos-sidebar', 'overlay registration unchanged')
 
   // 联合 disposer：两次 inject 的 disposer 都被调用且不抛错。
   dispose()
   assert.equal(ctx.slotNames.length, 2, 'dispose ran without throwing')
+})
+
+test('a host with no settings transport still activates and registers only the overlay', () => {
+  // 这是把 Web boot 打挂的那类回归：两个设置传输都不在 exports.inject 里，
+  // 可选等待不应阻塞激活。没有传输时工作台照常挂载（shell.overlay 立即注册），
+  // 而设置卡片正确地不注册 —— 它属于设置传输，账本在没有传输时看不到它。
+  const { apply } = loadClientDragApi()
+  const ctx = fakeCtx() // services 为空
+  const dispose = apply(ctx)
+  const overlayReg = ctx.registrations.find((r) => r.name === 'shell.overlay')
+  assert.ok(overlayReg && overlayReg.id === 'dsh-hmos-sidebar', 'overlay registers without any transport')
+  assert.equal(
+    ctx.registrations.filter((r) => r.name === 'settings.plugin.item').length,
+    0,
+    'no settings card without a settings transport',
+  )
+  dispose()
 })

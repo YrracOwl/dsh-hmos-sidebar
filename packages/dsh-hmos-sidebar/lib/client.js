@@ -160,6 +160,38 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
     // 设置是可选增强，绝不影响工作台主功能。
     const SETTINGS_NS = 'hmos-sidebar'
 
+    // ── settings-scope 可移植层（DSH 0.1.5 ↔ 0.1.7-rc.1）────────────────────
+    //
+    // 两个宿主把同一份 scope 契约放在不同的服务名下：
+    //
+    //   ≤ 0.1.5  settingsScope.bind({ namespace })  → SettingsScope<T>
+    //   ≥ 0.1.7  configForms.get(entryId)           → ConfigForm<T>
+    //
+    // 两者都提供 getSnapshot()/subscribe()/set()/unset()/mutate()，快照形状也
+    // 相同（status/value/base/user/revision/writable/mode），所以解析结果可以
+    // 原样交给卡片与悬浮球使用。
+    //
+    // 键不同是本插件特有的：0.1.5 的命名空间是 'hmos-sidebar'（Host 半注册的
+    // 名字），而 0.1.7 的 form 以「profile 入口 id」为命名空间，本入口 id 是
+    // 'dsh-hmos-sidebar'。因此优先绑定旧命名空间，新宿主再回退到入口 id。
+    //
+    // 用 ctx.get（而不是直接读 ctx.x）：未 inject 的属性读取不会解析到服务。
+    const SETTINGS_ENTRY_ID = 'dsh-hmos-sidebar'
+
+    // 由 ctx.inject 回调传入已就绪的上下文；两个传输都不会进 exports.inject
+    // （每个 inject 名都是硬门槛，声明可选传输会让插件永久 pending）。
+    function resolveSettingsScopeFrom(sctx) {
+      const binder = sctx.get('settingsScope')
+      if (binder && typeof binder.bind === 'function') return binder.bind({ namespace: SETTINGS_NS })
+      const forms = sctx.get('configForms')
+      if (forms && typeof forms.get === 'function') {
+        const byEntryId = forms.get(SETTINGS_ENTRY_ID)
+        if (byEntryId) return byEntryId
+        return forms.get(SETTINGS_NS)
+      }
+      return null
+    }
+
     function readHmosSettings(scope) {
       const fallback = { ready: false, keepCollapsed: true, hideWithoutProject: true }
       if (!scope || typeof scope.getSnapshot !== 'function') return fallback
@@ -323,7 +355,10 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
 
     function HmosSettingsCard(props) {
       ensureCardStyles()
-      const scope = props.scope
+      // 设置传输可能晚于注册到达，因此每次渲染都通过 getter 现读，
+      // 而不是依赖注册那一刻捕获的值。
+      const getScope = typeof props.getScope === 'function' ? props.getScope : () => props.scope
+      const scope = getScope()
       const api = props.api
       const [tick, setTick] = React.useState(0)
       const [open, setOpen] = React.useState(false)
@@ -562,6 +597,14 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
     function HmosOverlay(props) {
       const hostRef = React.useRef(null)
       const rootRef = React.useRef(null)
+      // 设置传输晚到也要让已挂载的 shadow 树看到它：订阅 scope 的到达，
+      // 到达后重渲染内部 HmosApp。
+      const [scopeReady, setScopeReady] = React.useState(0)
+      React.useEffect(() => {
+        const scope = props.getSettingsScope ? props.getSettingsScope() : undefined
+        if (!scope || typeof scope.subscribe !== 'function') return undefined
+        return scope.subscribe(() => setScopeReady((n) => n + 1))
+      }, [])
       React.useLayoutEffect(() => {
         const host = hostRef.current
         if (!host) return undefined
@@ -573,7 +616,8 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
         shadow.appendChild(mount)
         const root = ReactDOM.createRoot(mount)
         rootRef.current = root
-        root.render(React.createElement(HmosApp, { workspacePath: props.workspacePath, settingsScope: props.settingsScope }))
+        const scope = props.getSettingsScope ? props.getSettingsScope() : undefined
+        root.render(React.createElement(HmosApp, { workspacePath: props.workspacePath, settingsScope: scope }))
         return () => {
           rootRef.current = null
           try { root.unmount() } catch {}
@@ -582,40 +626,61 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
         }
       }, [])
       React.useEffect(() => {
-        if (rootRef.current) rootRef.current.render(React.createElement(HmosApp, { workspacePath: props.workspacePath, settingsScope: props.settingsScope }))
-      }, [props.workspacePath])
+        if (rootRef.current) {
+          const scope = props.getSettingsScope ? props.getSettingsScope() : undefined
+          rootRef.current.render(React.createElement(HmosApp, { workspacePath: props.workspacePath, settingsScope: scope }))
+        }
+      }, [props.workspacePath, scopeReady])
       return React.createElement('div', { ref: hostRef, 'data-dsh-hmos-sidebar': '' })
     }
 
-    function HmosSlotEntry({ useSessions, settingsScope }) {
+    function HmosSlotEntry({ useSessions, getSettingsScope }) {
       const current = useSessions((snapshot) => snapshot.current)
       const workspacePath = useSessions((snapshot) => current === undefined ? '' : (snapshot.byId[current] && snapshot.byId[current].cwd) || '')
-      return React.createElement(HmosOverlay, { workspacePath, settingsScope })
+      return React.createElement(HmosOverlay, { workspacePath, getSettingsScope })
     }
 
     function apply(ctx) {
-      // 官方设置 scope（可选）：settingsScope / connection 服务缺失时保持 null，
+      // 官方设置 scope（可选）：两个宿主都没有对应服务时保持 null，
       // 悬浮球与弹窗按内置默认值（安静模式）工作。
+      // 版本可移植解析见 resolveSettingsScopeFrom（0.1.5 settingsScope / 0.1.7 configForms）。
       let settingsScope = null
-      try {
-        const binder = ctx.get('settingsScope')
-        if (binder && typeof binder.bind === 'function') settingsScope = binder.bind({ namespace: SETTINGS_NS })
-      } catch { settingsScope = null }
+      // 稳定的惰性读取器：注册回调在注册那一刻求值，而设置传输可能晚到，
+      // 因此覆盖层与卡片都读 getter 而不是注册时捕获的值。
+      const getSettingsScope = () => settingsScope
       let connectionApi = null
       try {
         const connection = ctx.get('connection')
         if (connection && connection.api) connectionApi = connection.api
       } catch { connectionApi = null }
 
+      // 覆盖层照旧立即注册（工作台不得被设置传输阻塞），只是把 scope 改成读 getter。
       const disposeOverlay = ctx.slots.inject('shell.overlay', () => ctx.slots.register(
         { name: 'shell.overlay', id: 'dsh-hmos-sidebar', order: 80, label: 'HarmonyOS 工作台' },
-        (props) => React.createElement(HmosSlotEntry, { useSessions: props.useSessions, settingsScope }),
+        (props) => React.createElement(HmosSlotEntry, { useSessions: props.useSessions, getSettingsScope }),
       ))
-      // 设置卡片：注册进官方「设置 → 插件」列表（keyed slot，key=设置命名空间）。
-      const disposeCard = ctx.slots.inject('settings.plugin.item', () => ctx.slots.register(
-        { name: 'settings.plugin.item', key: SETTINGS_NS, label: 'HarmonyOS 工作台' },
-        () => React.createElement(HmosSettingsCard, { scope: settingsScope, api: connectionApi }),
-      ))
+
+      // 设置卡片必须从「拥有设置传输的上下文」里注册：即 ctx.inject([...], cb) 的回调，
+      // 且用回调交给我们的子上下文（sctx）。从裸 apply 上下文注册 settings.plugin.item
+      // 会把条目放进「设置 → 插件」页的账本看不到的地方——该页在它自己的上下文里读
+      // ctx.slots.entries('settings.plugin.item')，拿到空数组，于是卡片永远不渲染，
+      // 尽管 register 正常返回。（仓外的 dshmarket 包能正常渲染，用的就是这个嵌套写法。）
+      let disposeCard = null
+      const registerCard = (sctx) => {
+        if (settingsScope !== null || disposeCard !== null) return
+        settingsScope = resolveSettingsScopeFrom(sctx)
+        if (settingsScope === null) return
+        // 在 scoped 上下文上注册，卡片用 getter 读取稳定的 scope。
+        disposeCard = sctx.slots.inject('settings.plugin.item', () => sctx.slots.register(
+          { name: 'settings.plugin.item', key: SETTINGS_NS, label: 'HarmonyOS 工作台' },
+          () => React.createElement(HmosSettingsCard, { getScope: getSettingsScope, api: connectionApi }),
+        ))
+      }
+      // 第一次等待只在 settingsScope 存在时触发；第二次覆盖改名后的传输，
+      // 其守卫避免两个名字同时存在时重复注册。
+      ctx.inject(['settingsScope'], registerCard)
+      ctx.inject(['configForms'], (sctx) => { if (disposeCard === null) registerCard(sctx) })
+
       // 拖拽可能跨 apply 生命周期：插件在拖拽中途 unload/update 时，
       // ctx.effect cleanup 兜底强制结束仍在飞行的 document 拖拽并恢复 body 状态。
       ctx.effect(() => () => disposeAllActiveDrags(), 'dsh-hmos-sidebar: active drags')
@@ -623,7 +688,7 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
       ctx.effect(() => () => removeCardStyles(), 'dsh-hmos-sidebar: plugin card style')
       return () => {
         try { disposeOverlay() } catch {}
-        try { disposeCard() } catch {}
+        try { if (disposeCard) disposeCard() } catch {}
       }
     }
 
@@ -1115,6 +1180,10 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
     }
 
     exports.apply = apply
+    // 'settingsScope'（≤ 0.1.5）与 'configForms'（≥ 0.1.7-rc.1）都声明：cordis 把
+    // 每个 inject 名当作独立的门，所以两个宿主上都能激活，实际用哪个由
+    // resolveSettingsScope 决定。两者都是可选服务——缺失时工作台照常运行，
+    // 只是设置卡片回退到内置默认值。
     exports.inject = ['slots']
     // 仅测试出口：DSH loader 只读取 apply/inject，忽略其余键。
     // test/client-source.test.mjs 用它真实执行三组拖拽并触发卸载路径，

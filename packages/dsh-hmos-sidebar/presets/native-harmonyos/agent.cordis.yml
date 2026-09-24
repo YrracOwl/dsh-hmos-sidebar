@@ -303,8 +303,20 @@
 # 模型写 TypeScript 程序（生成的 SDK 覆盖全部可见工具，含 41 个 dcli__*）经
 # run_code 一次执行多步操作，减少往返。注册表本身留在宿主平面，本行只声明
 # 本预设的呈现方式，native 会话可与 PTC Mode 会话同进程并存。
-# 宿主组合已组装 codeRuntime（@deepseek-ai/dsh-code-runtime-worker-thread），
-# 故不会因缺运行时挂载失败。改为 both 可保留原生工具直呼 + run_code 并存。
+# 宿主组合已组装 codeRuntime（≤ 0.1.5 为 @deepseek-ai/dsh-code-runtime-worker-thread，
+# 0.1.7-rc.1 起更名为 @deepseek-ai/dsh-ptc-runtime-node），故不会因缺运行时挂载失败。
+# 改为 both 可保留原生工具直呼 + run_code 并存。
+#
+# ⚠ 宿主升级到 0.1.7-rc.1 的前置条件（本文件目前只在 ≤ 0.1.5 上可挂载）：
+#   1) 本 preset 是「目录型 preset」，而 0.1.7-rc.1 已移除目录型 preset，改为在
+#      profile patch 中用 `@deepseek-ai/dsh-agent-preset` 声明 identity + 子插件
+#      列表（见上游 .agents/notes/implemented/architecture/2026-09-18-declarative-agent-presets.md）。
+#      升级时必须把本文件整体改写成该声明形式，preset.yml / skills 的承载方式一并调整。
+#   2) 下面 workflow-worker-thread 行引用的
+#      `@deepseek-ai/dsh-workflow-worker-thread` 在 0.1.7-rc.1 已更名为
+#      `@deepseek-ai/dsh-workflow-ptc`（默认导出 PtcWorkflowEngine），且不提供兼容别名；
+#      改写时同时把行 id 改为 workflow-ptc、name 改为 `@deepseek-ai/dsh-workflow-ptc`
+#      （config.provider: spawn 不变）。
 - id: tool-presentation
   name: '@deepseek-ai/dsh-agent-tool-presentation'
   config:
