@@ -33,4 +33,4 @@ Publishing or installing a newer package does not overwrite user-level preset co
 2. From the Web profile directory, run `pnpm exec dsh-hmos-sidebar install-presets --all --force`; it uses the profile's installed package and backs up each existing target before replacement.
 3. Restart the existing DSH Web Profile so the Host rebuilds preset standing generations. Do not start a second server for verification.
 
-User preset directories are deployment copies, not the source of truth. Fix preset behavior here, publish it, and refresh through the installer rather than hand-patching those copies.
+The installer picks the payload shape from the profile: on DSH ≤ 0.1.5 step 2 refreshes the copied directory presets, while on ≥ 0.1.7-rc.1 the preset is read straight out of the installed package through the profile patch, so step 1 alone is enough and step 2 only confirms “already current”. User preset directories are deployment copies, not the source of truth. Fix preset behavior here, publish it, and refresh through the installer rather than hand-patching those copies.

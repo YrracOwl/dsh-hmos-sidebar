@@ -225,3 +225,111 @@ test('bundled HarmonyOS presets use the current dsh-persona config contract', ()
   )
   assert.match(bootstrapSource, /PERSONA_SECTION_NAMES = new Set\(\['deployment:persona-prefix', 'deployment:persona', 'persona'\]\)/)
 })
+
+// ---------------------------------------------------------------------------
+// Declarative payloads (DSH >= 0.1.7-rc.1)
+//
+// That release removed the directory roster. Each bundled preset therefore
+// ships a second payload: an entry list declaring `@deepseek-ai/dsh-agent-preset`,
+// mounted by a `cordis:include` row that `install-presets` writes into the
+// profile patch. These assertions are text-level guards for CI; the workspace
+// script `scripts/preset-declarative-check.mjs` parses both payloads with the
+// loader's YAML dialect and compares them row by row.
+// ---------------------------------------------------------------------------
+
+function declarativeSource(id) {
+  return fs.readFileSync(path.join(packageRoot, 'presets', `${id}.declarative.yml`), 'utf8').replace(/\r\n/g, '\n')
+}
+
+test('each bundled preset ships a declarative payload the installer can include', () => {
+  assert.equal(pkg.files.includes('presets'), true, 'the payloads must ship in the tarball')
+
+  const orders = { 'native-harmonyos': 5, 'liangshen-native-harmonyos': 6 }
+  for (const [id, order] of Object.entries(orders)) {
+    const flat = declarativeSource(id)
+
+    // One top-level declaration row, whose config carries the identity that
+    // used to live in preset.yml.
+    assert.match(flat, /^- id: preset-[a-z0-9-]+\n {2}name: '@deepseek-ai\/dsh-agent-preset'\n/m, id + ': expected a top-level declaration row')
+    assert.match(flat, new RegExp(`^ {4}id: ${id}$`, 'm'), id + ': config.id must equal the preset id')
+    assert.match(flat, new RegExp(`^ {4}order: ${order}$`, 'm'), id + ': roster order')
+    assert.match(flat, /^ {4}name: ".+"$/m, id + ': display name must be inline')
+    assert.match(flat, /^ {4}description: ".+"$/m, id + ': description must be inline')
+    assert.match(flat, /^ {4}plugins:$/m, id + ': the declaration needs its child plugin list')
+
+    // DSH 0.1.7-rc.1 renamed the workflow backend and ships no alias. The
+    // header comment records the rename, so assert on ROWS, not raw text.
+    assert.doesNotMatch(flat, /name: '@deepseek-ai\/dsh-workflow-worker-thread'/, id + ': rc.1 has no workflow-worker-thread alias')
+    assert.doesNotMatch(flat, /- id: workflow-worker-thread$/, id + ': rc.1 has no workflow-worker-thread row id')
+    assert.match(flat, /name: '@deepseek-ai\/dsh-workflow-ptc'/, id + ': must name the renamed backend')
+    assert.match(flat, /^ {10}- id: workflow-ptc$/m, id + ': renamed row id')
+
+    // A declaration has no directory of its own: skills resolve from the
+    // installed package, and nothing may be relative to a preset directory.
+    assert.match(
+      flat,
+      /createRequire\(baseUrl\)\.resolve\('dsh-hmos-sidebar\/package\.json'\)/,
+      id + ': skills must resolve from the installed package',
+    )
+    assert.match(flat, /'presets', 'native-harmonyos', 'skills'/, id + ': skills point at the shared catalog')
+    assert.doesNotMatch(flat, /!!js[^\n]*new URL\(/, id + ': no directory-relative URL in a row expression')
+    assert.doesNotMatch(flat, /^\s+- id: \S+\n\s+name: '\.\//m, id + ': no directory-relative module specifier')
+    assert.doesNotMatch(flat, /[A-Za-z]:[\\/]/, id + ': no absolute machine path in a shipped payload')
+
+    // Realms decide which plane a row publishes into; losing one leaks a
+    // service into the root realm and the roster rejects the mount.
+    for (const realm of ['planMode: true', 'compaction: true', 'toolResultPruner: true', 'workflowEngine: true']) {
+      assert.match(flat, new RegExp(`^ +${realm}$`, 'm'), `${id}: missing isolate realm ${realm}`)
+    }
+    assert.match(flat, /^ {8}name: cordis:group$/m, id + ': realms only apply to a group row')
+  }
+})
+
+test('declarative payloads keep the current persona and presentation contracts', () => {
+  for (const id of ['native-harmonyos', 'liangshen-native-harmonyos']) {
+    const flat = declarativeSource(id)
+    const row = /\n {6}- id: persona\n([\s\S]*?)(?=\n {6}- id: )/.exec(flat)
+    assert.ok(row, id + ': expected a persona row in the declaration')
+    assert.match(row[0], /^\s+prefix: /m, id + ': persona config needs the required `prefix` key')
+    assert.doesNotMatch(row[0], /^\s+text: /m, id + ': the pre-0.1.5 `text` persona key is not a valid config key')
+
+    assert.doesNotMatch(flat, /(?:mode|promotedPresentation): code\b/, id + ': `code` is not a presentation identifier')
+  }
+
+  // native-harmonyos declares PTC statically; the two dcli__* tool mounts and
+  // the presentation row are what make the shipped preset a PTC vertical.
+  const native = declarativeSource('native-harmonyos')
+  assert.match(native, /^ {10}mode: ptc$/m)
+  assert.match(native, /name: '@deepseek-ai\/dsh-agent-tool-presentation'/)
+  assert.match(native, /name: 'dsh-hmos-sidebar\/tools'/)
+
+  // Liangshen must NOT declare a static mode: rc.1's `tools.presentAs()` throws
+  // when the scope already has one, and the bootstrap owns the switch.
+  const liangshen = declarativeSource('liangshen-native-harmonyos')
+  assert.match(liangshen, /^ {10}promotedPresentation: ptc$/m)
+  assert.doesNotMatch(liangshen, /- id: tool-presentation/, 'a static mode would conflict with tools.presentAs()')
+  assert.match(liangshen, /name: 'dsh-hmos-sidebar\/presets\/liangshen-tool-bootstrap'/)
+})
+
+test('Liangshen preset modules are reachable as package subpaths', () => {
+  // A declarative row's baseUrl is the declaration file, so `./tool-bootstrap.mjs`
+  // would only resolve while the preset was a directory. The modules stay where
+  // they are and become subpath exports instead.
+  const liangshen = declarativeSource('liangshen-native-harmonyos')
+  for (const [subpath, target] of [
+    ['./presets/liangshen-tool-bootstrap', './presets/liangshen-native-harmonyos/tool-bootstrap.mjs'],
+    ['./presets/liangshen-custom-bash', './presets/liangshen-native-harmonyos/custom-bash.mjs'],
+  ]) {
+    assert.equal(pkg.exports[subpath], target, 'export ' + subpath + ' must exist')
+    assert.equal(fs.existsSync(path.join(packageRoot, target)), true, target + ' must exist')
+  }
+  assert.match(liangshen, /name: 'dsh-hmos-sidebar\/presets\/liangshen-tool-bootstrap'/)
+  assert.match(liangshen, /name: 'dsh-hmos-sidebar\/presets\/liangshen-custom-bash'/)
+
+  // The bootstrap keeps importing its sibling by relative path: only the
+  // module SPECIFIER changed, the files did not move.
+  assert.match(
+    fs.readFileSync(path.join(packageRoot, 'presets', 'liangshen-native-harmonyos', 'tool-bootstrap.mjs'), 'utf8'),
+    /import \{ sessionEvents \} from '\.\/dsh-compat\.mjs'/,
+  )
+})

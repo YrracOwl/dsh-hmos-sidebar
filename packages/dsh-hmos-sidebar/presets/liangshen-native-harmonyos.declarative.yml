@@ -1,0 +1,338 @@
+# The `liangshen-native-harmonyos` (梁神模式) agent preset in the DECLARATIVE
+# shape DSH 0.1.7-rc.1 introduced: an ordinary Cordis ENTRY LIST (not a patch
+# list) whose one row declares `@deepseek-ai/dsh-agent-preset`. A directory
+# preset — the shape `presets/liangshen-native-harmonyos/` still uses — is not
+# discovered by that roster.
+#
+# Two-phase bootstrap (unchanged from the directory twin): phase 1 exposes the
+# builtin Minimal preset's exact surface — persistent `bash` plus
+# `str_replace_editor`, one-line persona, no runtime contexts, no injected
+# pre-step messages — anchoring the Minimal trajectory; after a stabilized
+# anchor the wire switches to PTC Mode (`run_code`) and the ordinary injections
+# open. `tool-bootstrap.mjs` owns that state machine; this file only declares
+# the rows it switches between.
+#
+# Twin: `presets/liangshen-native-harmonyos/` (agent.cordis.yml + preset.yml +
+# tool-bootstrap.mjs + custom-bash.mjs + dsh-compat.mjs) is the SAME preset for
+# ≤ 0.1.5. `scripts/preset-declarative-check.mjs` in the workspace root parses
+# both with the loader's YAML dialect and fails when a row id, name, realm, or
+# persona value drifts. Intended deltas, all forced by DSH 0.1.7-rc.1:
+#
+#   1. `@deepseek-ai/dsh-workflow-worker-thread` → `@deepseek-ai/dsh-workflow-ptc`
+#      (row id `workflow-worker-thread` → `workflow-ptc`), `provider: spawn`
+#      unchanged; rc.1 ships no alias.
+#   2. The two preset-local modules become package subpath exports —
+#      `dsh-hmos-sidebar/presets/liangshen-tool-bootstrap` and
+#      `dsh-hmos-sidebar/presets/liangshen-custom-bash` — instead of the
+#      directory-relative `./tool-bootstrap.mjs` / `./custom-bash.mjs`, which
+#      only resolve while `baseUrl` is this preset's own directory. The FILES
+#      do not move: `tool-bootstrap.mjs` keeps importing its sibling
+#      `./dsh-compat.mjs`, and both keep living beside the directory twin.
+#   3. The `skills/` directory is resolved from this package's install path.
+#      It is the SAME directory the twin uses (`../native-harmonyos/skills/`):
+#      the two presets share one skill catalog, which is why `install-presets`
+#      always installs `native-harmonyos` alongside this one.
+#   4. Product `tool-subagent` rows carry rc.1's config vocabulary
+#      (`backgroundMode: one-shot` + `maxDepth: provider-managed`). Both stay
+#      `disabled`.
+#   5. Display metadata from `preset.yml` is inline as `config.name` /
+#      `config.description` / `config.order`.
+#
+# No `tool-presentation` row here, matching the twin: promotion switches the
+# presentation imperatively (`tools.presentAs('ptc')` inside `tool-bootstrap`),
+# not by declaring a static mode.
+#
+# How it mounts: `dsh-hmos-sidebar install-presets` writes a managed
+# `cordis:include` row into the active profile's `cordis.patch.yml`; the
+# include re-bases `baseUrl` to this file's own directory, which is what makes
+# the bare specifiers below resolve from the profile's `node_modules` without
+# storing any absolute machine path.
+- id: preset-liangshen-native-harmonyos
+  name: '@deepseek-ai/dsh-agent-preset'
+  config:
+    id: liangshen-native-harmonyos
+    name: "梁神模式-原生鸿蒙开发"
+    order: 6
+    description: "梁神模式的 Minimal 锚定与晋升机制，晋升后切换为原生鸿蒙开发专家 Persona，并进入 PTC 模式（通过 run_code），附带 HarmonyOS dcli__* 工具链。"
+    plugins:
+      # ── identity ──────────────────────────────────────────────────────────
+      #
+      # Phase 1 shows only this one-line persona: `tool-bootstrap` filters the
+      # assembled sections down to the persona section during phase 1 and
+      # restores every section after promotion, appending the session's working
+      # directory — so plan-mode's `plan:policy` takes effect instead of being
+      # permanently shadowed by a `complete` persona.
+      - id: persona
+        name: '@deepseek-ai/dsh-persona'
+        config:
+          prefix: "You are a helpful software engineer assistant."
+
+      # Two-phase input bootstrap with the exact Minimal phase-1 tools. See the
+      # module header for the full state machine; the config keys below are the
+      # same ones the ≤ 0.1.5 twin passes.
+      - id: tool-bootstrap
+        name: 'dsh-hmos-sidebar/presets/liangshen-tool-bootstrap'
+        config:
+          shellTools: [bash]
+          commonTools: [str_replace_editor]
+          messageSources: [user]
+          anchorGate: true
+          maxBootstrapSteps: 4
+          promoteAfterFirstResponse: true
+          bootstrapMaxTokens: 1024
+          compactionTools: [read, write, edit, glob, grep, todo_write, ask_user_question]
+          deferredSources: [agent-instructions, skill-catalog]
+          deferredGraceSteps: 1
+          promotedPresentation: ptc
+          promotedPersonaText: >-
+            你是一名原生鸿蒙（HarmonyOS）应用开发专家。
+
+            执行形态：PTC 模式——计划阶段用 plan mode（exit_plan_mode 提交完整计划），
+            追踪用 todo_write，编码用 PTC Mode：通过 PTC SDK 的 run_code 编写 TypeScript 程序组合多步操作
+            （一个程序内多次 SDK 工具调用，一次往返完成；SDK 覆盖全部工具，含 41 个 dcli__*）。
+
+            最高优先级规则：
+            1. 修改 .ets / C/C++ 源码后必须先用 dcli__lsp_check 验证（files 传改动文件，projectPath 传工程根），诊断清零再继续；LSP 卡死时用 dcli__lsp_restart。
+            2. 动手前先读 build-profile.json5 / oh-package.json5 / module.json5，理解工程结构。
+            3. 构建/运行/日志/文档优先走 dcli__* 工具；仅当能力尚未封装且任务确实需要时，才调用 devecocli 命令，并先用 --help 核对参数。
+            4. 跨页面/新能力/要设备验收的特性按 sdd-feature（验收契约落盘 docs/feature-contracts/）；UI 功能用 dcli__build_project + dcli__install_hap 装到真机/模拟器，用 dcli__ui_layout/click/swipe/text 操作，配合 dcli__ui_screenshot 截图 + read_image 看图逐项验证界面与交互（改 .ets / C/C++ 后先 dcli__lsp_check 清零诊断再跑 UI）。
+            5. API 用法不确定先查文档（hmos-doc-research / dcli__docs_search），禁止臆造。
+            6. 仅当用户明确要求 Ralph / 新鲜代理迭代时使用 ralph 工具；普通长任务用 goal，有限委派用 subagent。
+
+            详细流程按需加载技能：native-harmonyos / arkui-state / arkui-api-quickref / hmos-ui-verify / sdd-feature / hmos-doc-research / hmos-debug-logs / hmos-build-sign-release / hmos-system-capabilities / hmos-agents-md / hmos-code-review / dcli-tools-reference。
+          # phase1FirstCallInstruction: After your first reasoning block, before answering, make one tool call (for example run `pwd` through the shell or view a workspace file) and base your answer on its result.
+
+      # Workspace instructions are quarantined by `tool-bootstrap` during phase 1
+      # and deferred one step after promotion, then stay current.
+      - id: agent-instructions
+        name: '@deepseek-ai/dsh-agent-instructions'
+        config:
+          maxBytes: 65536
+
+      # ── minimal phase-1 shell ─────────────────────────────────────────────
+      #
+      # The PTY registry is an agent-owned service, so it lives in an
+      # entry-local realm. The backend still consumes the host sandbox policy
+      # and subprocess implementation. This persistent `bash` replaces the
+      # Standard ephemeral shell for the WHOLE session (both tools register the
+      # name `bash`), which is the exact-Minimal tradeoff this preset evaluates.
+      - id: persistent-shell
+        name: cordis:group
+        group: true
+        disabled: !!js process.platform === 'win32'
+        isolate:
+          terminals: true
+        config:
+          - id: pty
+            name: '@deepseek-ai/dsh-terminal'
+
+          - id: terminal-bash
+            name: '@deepseek-ai/dsh-terminal-bash'
+            config:
+              timeoutMs: 300000
+
+          - id: persistent-bash
+            name: '@deepseek-ai/dsh-tool-bash-persistent'
+            config:
+              timeoutMs: 300000
+              description: |-
+                Run commands in a bash shell
+                * When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
+                * You don't have access to the internet via this tool.
+                * You do have access to a mirror of common linux and python packages via apt and pip.
+                * State is persistent across command calls and discussions with the user.
+                * To inspect a particular line range of a file, e.g. lines 10-25, try 'sed -n 10,25p /path/to/the/file'.
+                * Please avoid commands that may produce a very large amount of output.
+                * Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.
+
+      # Windows-only `bash` tool: the PTY backend above is linux/darwin-only, so
+      # win32 disables the persistent-shell group and registers this `bash`
+      # through the ordinary cross-platform subprocess seam (Git Bash). Both
+      # platforms end up with exactly one tool named `bash`, so the phase-1
+      # Minimal anchor (shellTools: [bash] + str_replace_editor) is unchanged.
+      # Non-zero exit is reported, not thrown; state does NOT persist across
+      # calls on this path; no OS sandbox confinement on Windows.
+      - id: custom-bash
+        name: 'dsh-hmos-sidebar/presets/liangshen-custom-bash'
+        disabled: !!js process.platform !== 'win32'
+
+      # ── minimal phase-1 filesystem ────────────────────────────────────────
+      #
+      # The phase-1 editor is a direct top-level row: it reuses the host's
+      # sandboxed `ctx.fs`, not a bare local filesystem, so it inherits the host
+      # file sandbox exactly like every Standard file tool.
+      - id: str-replace-editor
+        name: '@deepseek-ai/dsh-tool-str-replace-editor'
+        config:
+          maxOutputChars: 16000
+
+      # ── standard filesystem tools ─────────────────────────────────────────
+      - id: tool-fs
+        name: '@deepseek-ai/dsh-tool-fs'
+
+      - id: tool-fs-search
+        name: '@deepseek-ai/dsh-tool-fs-search'
+        config:
+          sampleOverCapGlobResults: false
+
+      # ── background jobs ───────────────────────────────────────────────────
+      #
+      # Only the model-facing controls; the job REGISTRY stays host-plane and
+      # is keyed by owning agent. With the persistent shell, long commands run
+      # through `&`; these controls still expose whatever the host tracks.
+      - id: tool-jobs
+        name: '@deepseek-ai/dsh-tool-jobs'
+
+      # ── skills ────────────────────────────────────────────────────────────
+      #
+      # Shared with the `native-harmonyos` twin — one skill catalog for both
+      # presets. The `skill-catalog` pre-step message is quarantined during
+      # phase 1 and deferred one step after promotion.
+      - id: skill-filesystem
+        name: '@deepseek-ai/dsh-skill-filesystem'
+        config:
+          customSkillDirs:
+            - !!js "process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('dsh-hmos-sidebar/package.json')), 'presets', 'native-harmonyos', 'skills')"
+
+      - id: tool-skill
+        name: '@deepseek-ai/dsh-tool-skill'
+
+      # ── goals ─────────────────────────────────────────────────────────────
+      #
+      # Only the model-facing tool; the goal service and its session driver are
+      # host-plane because the Gateway serves the goal domain as Remotes.
+      - id: tool-goal
+        name: '@deepseek-ai/dsh-tool-goal'
+
+      # ── plan mode ─────────────────────────────────────────────────────────
+      - id: planning
+        name: cordis:group
+        group: true
+        isolate:
+          planMode: true
+        config:
+          - id: plan-mode
+            name: '@deepseek-ai/dsh-plan-mode'
+            config:
+              section: |
+                    You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+                    Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+                    The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed to keep the tool catalog unchanged. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs in exit_plan_mode.
+
+                    Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+                    Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
+
+                    When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+
+      # ── compaction ────────────────────────────────────────────────────────
+      #
+      # `compaction-basic` reads `toolResultPrune` through `ctx.get`, so the
+      # pruner must share this realm rather than sit outside it. `tokenMeter` is
+      # deliberately NOT in this realm: it is host-plane and owns the
+      # context-meter projection units the browser reads for every session.
+      - id: compaction
+        name: cordis:group
+        group: true
+        isolate:
+          compaction: true
+          toolResultPruner: true
+        config:
+          - id: compaction-basic
+            name: '@deepseek-ai/dsh-compaction-basic'
+
+          - id: command-compact
+            name: '@deepseek-ai/dsh-command-compact'
+
+          - id: tool-result-pruner
+            name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+            config:
+              thresholdChars: 8192
+              headChars: 4096
+              tailChars: 1024
+
+      # ── delegation and workflows ──────────────────────────────────────────
+      #
+      # The `subagents` registry and its spawn/fork backends are host-plane
+      # singletons; this preset contributes the delegation TOOLS. `workflows` is
+      # agent-owned, so every row reaching it shares one entry-local realm.
+      - id: delegation
+        name: cordis:group
+        group: true
+        isolate:
+          workflowEngine: true
+        config:
+          - id: tool-subagent-control
+            name: '@deepseek-ai/dsh-tool-subagent-control'
+
+          - id: tool-subagent-list-agents
+            name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+
+          - id: tool-subagent
+            name: '@deepseek-ai/dsh-tool-subagent'
+            config:
+              provider: spawn
+              toolName: subagent
+              backgroundMode: continuable
+
+          - id: tool-subagent-fork
+            name: '@deepseek-ai/dsh-tool-subagent'
+            config:
+              provider: fork
+              toolName: subagent_fork
+              backgroundMode: continuable
+
+          # Product providers are host-plane singletons. Remove `disabled` from
+          # either row to expose that product to agents composed from a copy.
+          - id: tool-subagent-codex
+            name: '@deepseek-ai/dsh-tool-subagent'
+            disabled: true
+            config:
+              provider: codex
+              toolName: subagent_codex
+              backgroundMode: one-shot
+              maxDepth: provider-managed
+
+          - id: tool-subagent-claude-code
+            name: '@deepseek-ai/dsh-tool-subagent'
+            disabled: true
+            config:
+              provider: claude-code
+              toolName: subagent_claude_code
+              backgroundMode: one-shot
+              maxDepth: provider-managed
+
+          - id: workflow-ptc
+            name: '@deepseek-ai/dsh-workflow-ptc'
+            config:
+              provider: spawn
+
+          - id: tool-workflow
+            name: '@deepseek-ai/dsh-tool-workflow'
+
+          - id: tool-ralph
+            name: '@deepseek-ai/dsh-tool-ralph'
+            config:
+              subagentProvider: spawn
+              maxRounds: 64
+
+      # ── remaining model-facing rows ───────────────────────────────────────
+      - id: tool-ask-user
+        name: '@deepseek-ai/dsh-tool-ask-user'
+
+      - id: tool-todo
+        name: '@deepseek-ai/dsh-tool-todo'
+        config:
+          allowParallelInProgress: true
+
+      - id: tool-web
+        name: '@deepseek-ai/dsh-tool-web'
+        config:
+          fetch: false
+          searchTimeoutMs: 60000
+
+      # Native HarmonyOS development tools, including the 41 dcli__* commands.
+      - id: tool-hmos-tools
+        name: 'dsh-hmos-sidebar/tools'

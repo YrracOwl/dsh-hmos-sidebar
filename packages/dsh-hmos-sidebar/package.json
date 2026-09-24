@@ -11,6 +11,8 @@
     ".": "./lib/index.js",
     "./tools": "./lib/dcli-tools.mjs",
     "./client": "./lib/client.js",
+    "./presets/liangshen-tool-bootstrap": "./presets/liangshen-native-harmonyos/tool-bootstrap.mjs",
+    "./presets/liangshen-custom-bash": "./presets/liangshen-native-harmonyos/custom-bash.mjs",
     "./package.json": "./package.json"
   },
   "files": [

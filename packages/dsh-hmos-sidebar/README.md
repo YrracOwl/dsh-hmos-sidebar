@@ -2,14 +2,16 @@
 
 ## English
 
-**Current release: 0.3.14** — Portable settings transport plus a real fix: the client resolves its settings scope on both the `settingsScope` (≤ 0.1.5) and `configForms` (≥ 0.1.7-rc.1) hosts. It previously declared only `slots` in `exports.inject` while reading `settingsScope`, and an undeclared service resolves to `undefined` — so the Settings card never read or wrote real values. Both transports are now declared.
+**Current release: 0.3.15** — Both bundled presets now ship in the two shapes DSH actually asks for: the ≤ 0.1.5 **directory** preset (`presets/<id>/`) and the ≥ 0.1.7-rc.1 **declaration** (`presets/<id>.declarative.yml`, one `@deepseek-ai/dsh-agent-preset` row). `install-presets` resolves `@deepseek-ai/dsh-agent-preset` from the profile to decide which one to install, so a DSH upgrade no longer silently drops the presets. On ≥ 0.1.7 nothing is copied into `$DSH_HOME`: the declaration stays in the package, and one small managed block in the profile's `cordis.patch.yml` mounts it with `cordis:include`. 0.3.14 carried the portable settings transport (`settingsScope` ≤ 0.1.5 / `configForms` ≥ 0.1.7-rc.1).
 
 A Windows-only HarmonyOS development workbench for DeepSeek Harness Web. One package bundles the Host RPC, 41 `dcli__*` tools, floating Web UI, and two installable HarmonyOS agent presets: `native-harmonyos` and `liangshen-native-harmonyos`. The Liangshen preset uses a capability-detected compatibility layer: DSH 0.1.2+ uses `session.snapshotEvents()`, while older RC releases fall back to `session.events`.
 
-Install with `dsh plugin --profile web add dsh-hmos-sidebar`, then run `npx --yes dsh-hmos-sidebar install-presets`. Windows only; restart the DSH Web Profile after installation.
+Install with `dsh plugin --profile web add dsh-hmos-sidebar`, then run `npx --yes dsh-hmos-sidebar install-presets` **from the Web profile directory**. Windows only; restart the DSH Web Profile after installation. The installer picks the payload the host can actually mount: on DSH ≤ 0.1.5 it copies `presets/<id>/` into `$DSH_HOME/.agent-presets/<id>/`; on ≥ 0.1.7-rc.1 it writes one `cordis:include` row per preset into the profile's `cordis.patch.yml`. `--mode directory|declarative` forces either shape and `--dry-run` prints what would be written.
 
 ## 中文
 
+> 0.3.15 预设双形态预适配：DSH 0.1.7-rc.1 移除了目录型 preset roster，改为在 profile patch 中用 `@deepseek-ai/dsh-agent-preset` 声明 identity + 子插件列表。两个内置预设现在各有两个**逐行等价**的 payload（`presets/<id>/` 与 `presets/<id>.declarative.yml`），`install-presets` 按 profile 能否解析该包自动选择：≤ 0.1.5 仍复制目录，≥ 0.1.7 改为写托管块 + `cordis:include`。改写中只保留 rc.1 强制的三处差异：`@deepseek-ai/dsh-workflow-worker-thread` → `@deepseek-ai/dsh-workflow-ptc`（上游无别名，行 id 同步改为 `workflow-ptc`）、技能目录改由 `createRequire(baseUrl).resolve('dsh-hmos-sidebar/package.json')` 定位、两个 preset 本目录模块改为 package 子路径导出。
+>
 > 0.3.12 预设挂载修复：`@deepseek-ai/dsh-persona` 自 DSH 0.1.5-rc.1 起把 persona 配置改为**必填** `prefix`（旧 `text` 键被删除，且报 `$.prefix missing required value` 导致预设无法切换），persona 提示段名也从 `deployment:persona` 拆为 `deployment:persona-prefix` / `deployment:persona-suffix`；两个内置预设与 `tool-bootstrap.mjs` 的段名白名单已同步。0.3.11 含同一修复但未发布成功（其发布跑因新契约测试的行尾假设在 CRLF 检出的 runner 上失败）。
 >
 > 0.3.2 兼容层：按能力检测选择 DSH 0.1.2 的 `session.snapshotEvents()` 或旧版 `session.events`，避免「梁神+鸿蒙」预设在会话回合启动时因 API 变更崩溃；并明确声明支持 DSH 0.1.2-rc.1。
@@ -68,13 +70,25 @@ dsh plugin --profile web add .\packages\dsh-hmos-sidebar
 
 > 41 个 `dcli__*` 工具需由包内的 `native-harmonyos` 或 `liangshen-native-harmonyos` 预设通过 `./tools` 单独挂载；主插件不会向所有 Agent 全局注册工具。
 
-安装插件后，运行预设安装器（默认安装两个预设）：
+安装插件后，在 **profile 目录**（本机为 `~/.dsh/profiles/<name>`）中运行预设安装器（默认安装两个预设）：
 
 ```powershell
-npx --yes dsh-hmos-sidebar install-presets
+pnpm exec dsh-hmos-sidebar install-presets --all
+# 或：npx --yes dsh-hmos-sidebar install-presets --all
 ```
 
-可先执行 `npx --yes dsh-hmos-sidebar install-presets --dry-run` 查看目标路径；已有同名预设时默认拒绝覆盖。确认替换可加 `--force`，安装器会先备份原目录。也可用 `--preset native-harmonyos` 只安装一个预设。完成后重启 DSH Profile。
+安装器**按宿主形态自动选择 payload**（探测 profile 能否解析 `@deepseek-ai/dsh-agent-preset`）：
+
+| 宿主 | payload | 安装动作 |
+| --- | --- | --- |
+| ≤ 0.1.5 | `presets/<id>/`（目录型 preset） | 复制到 `<DSH_HOME>/.agent-presets/<id>/`；同名默认拒绝覆盖 |
+| ≥ 0.1.7-rc.1 | `presets/<id>.declarative.yml`（`@deepseek-ai/dsh-agent-preset` 声明行） | 在 profile 的 `cordis.patch.yml` 写入一段托管块，用 `cordis:include` 挂载包内声明文件 |
+
+- ≥ 0.1.7 时**不往 `$DSH_HOME` 复制任何文件**：声明留在包内，`dsh plugin` 升级包即刷新预设，无需重跑安装器（重跑只会显示「已是最新」）。
+- 托管块由 `# >>>` / `# <<<` 标记行界定，块外内容（含你自己的注释与条目）**一律不动**；修改 `cordis.patch.yml` 前总是先写带时间戳的备份，且经同目录临时文件原子替换。
+- 参数：`--dry-run` 只打印目标与将写入的内容；`--force` 刷新已存在的目标；`--preset <id>` 只装一个（装 `liangshen-native-harmonyos` 会自动带上 `native-harmonyos` —— 两者共用同一份技能库）；`--mode auto|directory|declarative` 强制形态；`--profile-dir DIR` 指定 profile 目录（默认当前目录）。
+- ≤ 0.1.5 升到 ≥ 0.1.7 后：旧目录副本不会再被新 roster 读取（不是报错，是静默消失），重跑一次安装器即写成声明式；`<DSH_HOME>/.agent-presets/` 下的旧目录可自行删除。
+- 完成后重启 DSH Profile（≥ 0.1.7 的 profile 补丁层受 HMR 监听，通常热重载即可，但 roster 重建以重启最稳）。
 
 包内直接依赖仅 `@modelcontextprotocol/sdk`。`@deepseek-ai/dsh-tools` 是 DSH 共享宿主包，声明为可选 `peerDependency`，不随插件单独安装，避免在插件内复制并遮蔽宿主版本；`./tools` 入口仅在 DSH 宿主提供该包时使用。
 
@@ -130,7 +144,12 @@ lib/
   environment.js   共享环境解析：cli/Studio/hdc/hvigor/json5/projectRoots（config→env→探测，动态）
   client.js        Client 半（web）：悬浮球 + 面板 UI（Shadow DOM，独立于 better-sidebar；层叠走官方 shell.overlay 层，可覆盖 shell 内容，菜单/dialog/toast 等更高 overlay 仍覆盖面板，禁止极端 z-index）+ 官方「设置 → 插件」设置卡片
 cordis.patch.yml   bundle patch（insert 行，无个人配置，Windows-only）
-test/              node:test 单测（环境解析 / CLI 缺失挂载 / 工具定义 / managed AGENTS / RPC helper）
+presets/
+  <id>/                    ≤ 0.1.5 目录型 preset：agent.cordis.yml + preset.yml + skills/
+  <id>.declarative.yml     ≥ 0.1.7-rc.1 声明式 preset：一行 @deepseek-ai/dsh-agent-preset，由 cordis:include 挂载
+bin/
+  dsh-hmos-sidebar.mjs     install-presets：按宿主形态安装目录型或声明式 preset，并维护 profile 补丁托管块
+test/              node:test 单测（环境解析 / CLI 缺失挂载 / 工具定义 / managed AGENTS / RPC helper / preset 安装器与双形态契约）
 ```
 
 ## 双签名配置（dcli__configure_dual_signing）

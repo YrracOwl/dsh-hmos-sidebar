@@ -379,14 +379,27 @@
 - id: tool-hmos-tools
   name: 'dsh-hmos-sidebar/tools'
 
-# ⚠ 宿主升级到 0.1.7-rc.1 的前置条件（本文件目前只在 ≤ 0.1.5 上可挂载）：
-#   1) 本 preset 是「目录型 preset」，而 0.1.7-rc.1 已移除目录型 preset，改为在
-#      profile patch 中用 `@deepseek-ai/dsh-agent-preset` 声明 identity + 子插件
-#      列表（见上游 .agents/notes/implemented/architecture/2026-09-18-declarative-agent-presets.md）。
-#      升级时必须把本文件整体改写成该声明形式；preset.yml、skills/ 目录，以及
-#      `tool-bootstrap.mjs` 的 deferred 提升逻辑都要一并重新承载。
-#   2) 上面 workflow-worker-thread 行引用的
-#      `@deepseek-ai/dsh-workflow-worker-thread` 在 0.1.7-rc.1 已更名为
-#      `@deepseek-ai/dsh-workflow-ptc`（默认导出 PtcWorkflowEngine），且不提供兼容别名；
-#      改写时同时把行 id 改为 workflow-ptc、name 改为 `@deepseek-ai/dsh-workflow-ptc`
-#      （config.provider: spawn 不变）。
+# ⚠ 本文件是 ≤ 0.1.5 的「目录型 preset」payload：旧 roster 扫描
+#   <DSH_HOME>/.agent-presets/<id>/ 下的 agent.cordis.yml。0.1.7-rc.1 移除了该
+#   roster，改为在 profile patch 中用 `@deepseek-ai/dsh-agent-preset` 声明 identity
+#   + 子插件列表。
+#   对应 payload 已经存在，无需再整体改写：
+#     ../liangshen-native-harmonyos.declarative.yml（同一 preset 的声明式孪生文件，逐行等价）
+#   `dsh-hmos-sidebar install-presets` 会自动识别宿主形态：≤ 0.1.5 复制本目录，
+#   ≥ 0.1.7 则往 profile 的 cordis.patch.yml 写托管块，用 cordis:include 挂载孪生文件。
+#   改动本文件时必须同步改孪生文件（工作区脚本 scripts/preset-declarative-check.mjs
+#   会逐行比对两者的行 id / name / isolate / persona 文本）。
+#   孪生文件中因 0.1.7-rc.1 而必须不同的只有四处：
+#   1) 下面的 `@deepseek-ai/dsh-workflow-worker-thread` 行在孪生文件里是
+#      id `workflow-ptc` + name `@deepseek-ai/dsh-workflow-ptc`（默认导出
+#      PtcWorkflowEngine，上游不提供兼容别名），config.provider: spawn 不变。
+#   2) 两个本目录模块改为 package 子路径导出：
+#      `dsh-hmos-sidebar/presets/liangshen-tool-bootstrap` /
+#      `dsh-hmos-sidebar/presets/liangshen-custom-bash`（`./tool-bootstrap.mjs`
+#      只在 baseUrl=本目录时可解析）。文件本身不动，`tool-bootstrap.mjs` 仍
+#      相对导入同目录的 `./dsh-compat.mjs`。
+#   3) skills/ 路径：目录型用 `new URL('../native-harmonyos/skills/', baseUrl)`，
+#      声明式改用 createRequire(baseUrl).resolve('dsh-hmos-sidebar/package.json')
+#      ——指向同一个目录（两个 preset 共用一份技能库）。
+#   4) product 行 tool-subagent-codex / -claude-code 采用 rc.1 的配置词汇
+#      （backgroundMode: one-shot + maxDepth: provider-managed）。
