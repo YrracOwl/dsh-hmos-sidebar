@@ -9,6 +9,7 @@ import {
   PRESET_IDS,
   PROFILE_PATCH_FILENAME,
   detectHostMode,
+  hostProbeBases,
   installPreset,
   installPresetsDeclarative,
   mergeManagedBlock,
@@ -151,15 +152,47 @@ test('parseArgs accepts the host-mode and profile-directory flags', () => {
 test('detectHostMode picks the payload the profile can actually mount', () => {
   const plain = profileFixture()
   try {
-    assert.equal(detectHostMode({ profileDir: plain.profile }), 'directory', 'no declarative registry in the profile')
+    assert.equal(detectHostMode({ probeBases: [plain.profile] }), 'directory', 'no declarative registry in the profile')
     assert.equal(detectHostMode({ mode: 'declarative', profileDir: plain.profile }), 'declarative', 'an explicit mode wins over the probe')
     assert.equal(detectHostMode({ mode: 'directory', profileDir: plain.profile }), 'directory')
   } finally { plain.dispose() }
 
   const declarative = profileFixture({ probe: true })
   try {
-    assert.equal(detectHostMode({ profileDir: declarative.profile }), 'declarative', 'the probe package marks a >= 0.1.7 host')
+    assert.equal(detectHostMode({ probeBases: [declarative.profile] }), 'declarative', 'the probe package marks a >= 0.1.7 host')
   } finally { declarative.dispose() }
+})
+
+test('the probe also reads the dsh install tree, for a profile ahead of its host', () => {
+  // A profile resolves host packages through a symlink farm mirroring the
+  // RUNNING install, so a profile still in front of a not-yet-restarted <= 0.1.5
+  // host would answer "directory" for a dsh that has already been upgraded.
+  // The install tree must therefore be probed as well, and only a miss on every
+  // base may fall back to the directory roster.
+  const staleFarm = profileFixture()
+  const upgradedInstall = profileFixture({ probe: true })
+  try {
+    assert.equal(detectHostMode({ probeBases: [staleFarm.profile] }), 'directory')
+    assert.equal(
+      detectHostMode({ probeBases: [staleFarm.profile, upgradedInstall.profile] }),
+      'declarative',
+      'a miss on the first base must not decide on its own',
+    )
+  } finally {
+    staleFarm.dispose()
+    upgradedInstall.dispose()
+  }
+})
+
+test('hostProbeBases covers the profile, an explicit install, and npm\'s global prefix', () => {
+  const bases = hostProbeBases({ profileDir: 'C:\\profiles\\web', installBase: 'C:\\dsh-install' })
+  assert.equal(bases[0], path.resolve('C:\\profiles\\web'), 'the running host comes first')
+  assert.ok(bases.includes(path.resolve('C:\\dsh-install')), 'an explicit install base is honored')
+  assert.ok(
+    bases.some((base) => base.includes(path.join('npm', 'node_modules', '@deepseek-ai', 'dsh'))),
+    'npm\'s global prefix is the last resort',
+  )
+  assert.deepEqual(hostProbeBases({ probeBases: ['C:\\only'] }), [path.resolve('C:\\only')], 'tests can pin the chain')
 })
 
 test('renderManagedBlock writes one cordis:include row per preset and no machine path', () => {

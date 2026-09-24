@@ -110,26 +110,54 @@ export function parseArgs(argv) {
 }
 
 /**
+ * Directories whose module resolution is probed for the declarative registry.
+ *
+ * The profile comes first because it is what the RUNNING host composes from: a
+ * dsh profile resolves host packages through `<DSH_HOME>/profiles/node_modules`,
+ * a symlink farm mirroring the running install's own package set (that is also
+ * the path a declaration's bare specifiers resolve through). But that farm
+ * reflects a host that has already BOOTED, so a profile sitting in front of a
+ * freshly upgraded, not-yet-restarted dsh would still answer for the old
+ * version. The install tree is probed as well for exactly that window — the
+ * declarative package is a hard dependency of 0.1.7-rc.1, and it does not exist
+ * at all on ≤ 0.1.5, so neither base can produce a false positive.
+ */
+export function hostProbeBases(options = {}) {
+  const bases = []
+  if (Array.isArray(options.probeBases)) return options.probeBases.map((dir) => path.resolve(dir))
+  const profileDir = options.profileDir || options.cwd
+  if (profileDir) bases.push(path.resolve(profileDir))
+  const installBase = String(options.installBase ?? process.env.DSH_INSTALL ?? '').trim()
+  if (installBase !== '') bases.push(path.resolve(installBase))
+  // npm's global prefix on Windows, where this package runs; the env override
+  // above covers any other layout.
+  const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
+  bases.push(path.join(appData, 'npm', 'node_modules', '@deepseek-ai', 'dsh'))
+  return [...new Set(bases)]
+}
+
+/**
  * Which payload the target host needs.
  *
- * `auto` resolves `@deepseek-ai/dsh-agent-preset/package.json` from the profile
- * directory — the package only exists on ≥ 0.1.7-rc.1, and it is the same
- * anchor the preset skills expression uses. A failed resolve means the old
- * directory roster, which is also what an unknown/absent probe should assume:
- * copying a directory onto a declarative host is a no-op, and merging a
- * declaration into a ≤ 0.1.5 host would fail the whole Web boot.
+ * `auto` looks for `@deepseek-ai/dsh-agent-preset/package.json` — a package that
+ * exists only on ≥ 0.1.7-rc.1 — from each base in {@link hostProbeBases}. A miss
+ * everywhere means the old directory roster, which is also the safe default:
+ * copying a directory onto a declarative host is a no-op, while merging a
+ * declaration into a ≤ 0.1.5 host fails the whole Web boot.
  */
 export function detectHostMode(options = {}) {
   const requested = options.mode ?? 'auto'
   if (!HOST_MODES.includes(requested)) throw new Error(`不支持的 --mode：${requested}`)
   if (requested !== 'auto') return requested
-  const from = path.resolve(options.profileDir || options.cwd || process.cwd())
-  try {
-    createRequire(path.join(from, 'package.json')).resolve(`${DECLARATIVE_PROBE}/package.json`)
-    return 'declarative'
-  } catch {
-    return 'directory'
+  for (const base of hostProbeBases(options)) {
+    try {
+      createRequire(path.join(base, 'package.json')).resolve(`${DECLARATIVE_PROBE}/package.json`)
+      return 'declarative'
+    } catch {
+      // Try the next base; a miss here is expected on ≤ 0.1.5.
+    }
   }
+  return 'directory'
 }
 
 function backupSuffix(now = new Date()) {
