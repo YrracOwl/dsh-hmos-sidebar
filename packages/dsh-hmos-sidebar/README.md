@@ -2,7 +2,7 @@
 
 ## English
 
-**Current release: 0.3.13** — documentation only: the package README now states the supported install path (`dsh plugin --profile web add dsh-hmos-sidebar`, then `npx --yes dsh-hmos-sidebar install-presets`) next to the preset refresh commands. No behavior change since 0.3.12, which fixed the DSH `0.1.5-rc.1` persona contract.
+**Current release: 0.3.14** — Portable settings transport plus a real fix: the client resolves its settings scope on both the `settingsScope` (≤ 0.1.5) and `configForms` (≥ 0.1.7-rc.1) hosts. It previously declared only `slots` in `exports.inject` while reading `settingsScope`, and an undeclared service resolves to `undefined` — so the Settings card never read or wrote real values. Both transports are now declared.
 
 A Windows-only HarmonyOS development workbench for DeepSeek Harness Web. One package bundles the Host RPC, 41 `dcli__*` tools, floating Web UI, and two installable HarmonyOS agent presets: `native-harmonyos` and `liangshen-native-harmonyos`. The Liangshen preset uses a capability-detected compatibility layer: DSH 0.1.2+ uses `session.snapshotEvents()`, while older RC releases fall back to `session.events`.
 
