@@ -19,6 +19,8 @@ import Schema from '@deepseek-ai/schemastery'
 import { TOOLS } from './dcli-tools.mjs'
 import {
   resolveEnv,
+  configString,
+  configStringList,
   cliMissingError,
   studioMissingError,
 } from './environment.js'
@@ -192,8 +194,10 @@ const MAX_STDERR = 2000000
 
 // 中性截图目录：不写任何个人绝对路径。优先级 config.screenshotDir → 工程下 .dsh-screenshots
 // → OS 临时目录下 dsh-hmos-screenshots。host 提供，client 端到端不关心具体盘符。
+// config.screenshotDir 同样可能是 0.1.7 线的 volatile 包装对象，经 configString() 读取。
 export function defaultScreenshotDir(cfg, projectPath) {
-  if (cfg && typeof cfg.screenshotDir === 'string' && cfg.screenshotDir) return cfg.screenshotDir
+  const shotDir = configString(cfg && cfg.screenshotDir)
+  if (shotDir) return shotDir
   if (projectPath) return path.join(projectPath, '.dsh-screenshots')
   return path.join(process.env.TEMP || 'C:\\Windows\\Temp', 'dsh-hmos-screenshots')
 }
@@ -265,9 +269,11 @@ export function trustedRoots(config) {
     seen.add(key)
     list.push(normWin(p))
   }
-  if (cfg.projectPath) push(cfg.projectPath)
+  // config.projectPath / projectRoots 在 0.1.7 线上是 volatile 包装对象：
+  // 必须用共享读取口取原值，否则 normWin() 会把 "[object Object]" 当成可信根。
+  push(configString(cfg.projectPath))
   if (process.env.PROJECT_PATH) push(process.env.PROJECT_PATH)
-  for (const r of (Array.isArray(cfg.projectRoots) ? cfg.projectRoots : [])) push(r)
+  for (const r of configStringList(cfg.projectRoots)) push(r)
   return list
 }
 

@@ -148,17 +148,54 @@ export function json5Candidates(cliPath) {
 // 归一化一条路径：反斜杠结尾保留（目录友好）
 function norm(p) { return p ? String(p).replace(/\//g, '\\') : '' }
 
+// ---- volatile 配置引用（0.1.7 线）----
+// schemastery ≥ 3.18.4 把标记了 `.volatile()` 的字段解析成 cosmokit 的「不可变引用」
+// 对象，而不是原始值：
+//   createVolatile(value) → Object.freeze({ get: () => current, [write]: (v) => { current = v } })
+//   write = Symbol.for('cosmokit.volatile.write')
+// cordis 的 resolveConfig() 对**每个**入口 config 都无条件跑一遍入口 `Config`
+// （连 cordis.patch.yml 里没有 `config:` 的行也一样），所以 0.1.7 线上
+// `config.cliPath` 恒为包装对象：它 truthy → cliSource 记成 'config'，
+// `norm()` 再把它变成 "[object Object]" → CLI 探活与 json5 定位一起失效。
+// 读法唯一：用共享 symbol 判定（同 dsh-mcp-pill 读 `pill.enabled`、工作区 AGENTS.md
+// 的 settings 陷阱），再 `.get()` 取原值；wrapper 上**没有** `.set`，服务是就地改值。
+const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
+
+// 是否 cosmokit volatile 引用（跨 ESM/CJS 副本用共享 symbol 识别，不看原型）。
+export function isVolatileRef(value) {
+  return value !== null && typeof value === 'object' &&
+    typeof value.get === 'function' && VOLATILE_WRITE in value
+}
+
+// 唯一的配置读取口：接受普通字符串、volatile 包装（逐层解包）、
+// undefined / 空串（都算「未配置」）；其他任何对象、数字、数组一律当作未配置。
+// 因此调用方永远拿不到对象，`norm()` / `path.resolve()` 不会再见到 "[object Object]"。
+export function configString(value) {
+  let raw = value
+  // volatile 不得套 volatile（schema 侧已禁止），这里仍按有界循环防御异常形状。
+  for (let i = 0; i < 4 && isVolatileRef(raw); i++) raw = raw.get()
+  return typeof raw === 'string' ? raw : ''
+}
+
+// 字符串列表配置（如 projectRoots）：逐项走同一个读取口，丢弃非字符串与空串。
+export function configStringList(value) {
+  return (Array.isArray(value) ? value : []).map(configString).filter(Boolean)
+}
+
 // 统一环境解析。
 //   config    —— patch/bundle 传入（cliPath / projectPath / devEcoHome / projectRoots）
 //   overrides —— 测试或调用方显式覆盖（同名字段；cliCandidatesList / devEcoHomeCandidates
 //                可在测试中注入候选清单，以机器无关地验证 detected 来源）
 // 返回：paths + ok 标志 + 来源标注（config/env:* / detected / missing）。
 export function resolveEnv(config = {}, overrides = {}) {
+  // 每个字段都过 configString()/configStringList()：0.1.7 线上它们是 volatile 包装对象，
+  // 直接交给 norm()/path.resolve() 会得到 "[object Object]"。缺省/空值仍等于「未配置」，
+  // 因此自动探测与环境变量回退完全不变。
   const cfg = {
-    cliPath: overrides.cliPath !== undefined ? overrides.cliPath : config.cliPath,
-    projectPath: overrides.projectPath !== undefined ? overrides.projectPath : config.projectPath,
-    devEcoHome: overrides.devEcoHome !== undefined ? overrides.devEcoHome : config.devEcoHome,
-    projectRoots: overrides.projectRoots !== undefined ? overrides.projectRoots : config.projectRoots,
+    cliPath: configString(overrides.cliPath !== undefined ? overrides.cliPath : config.cliPath),
+    projectPath: configString(overrides.projectPath !== undefined ? overrides.projectPath : config.projectPath),
+    devEcoHome: configString(overrides.devEcoHome !== undefined ? overrides.devEcoHome : config.devEcoHome),
+    projectRoots: configStringList(overrides.projectRoots !== undefined ? overrides.projectRoots : config.projectRoots),
   }
   const cliList = overrides.cliCandidatesList || cliCandidates()
   const studioList = overrides.devEcoHomeCandidates || DEVECO_HOME_CANDIDATES

@@ -11,6 +11,9 @@ import {
   cliEntryFromManifest,
   cliPackageRootFromEntry,
   json5Candidates,
+  isVolatileRef,
+  configString,
+  configStringList,
   WINDOWS_ONLY,
   DEFAULT_PROJECT_ROOTS,
 } from '../lib/environment.js'
@@ -361,5 +364,180 @@ test('cliMissingError names the manifest-based discovery, the global install and
   assert.match(msg, /DEVECO_CLI_PATH/)
   assert.match(msg, /cliPath/)
   assert.doesNotMatch(msg, /dist[\\/]cli\.js/, '不得再把旧布局写成唯一入口路径')
+})
+
+// ---------------------------------------------------------------------------
+// volatile 配置读取（0.1.7 线回归：面板出现 "[object Object] … [config]"）
+//
+// schemastery ≥ 3.18.4 把标记了 `.volatile()` 的字段解析成 cosmokit 的不可变引用
+// 对象 `{ get(), [Symbol.for('cosmokit.volatile.write')] }`，而不是原始值；
+// cordis 的 resolveConfig() 又对**每个**入口 config 无条件跑一遍入口 `Config`
+// （连没有 `config:` 的行也一样），所以 0.1.7 线上 `config.cliPath` 永远是包装对象。
+// 宿主必须按共享 symbol 判定并 `.get()` 取原值，否则 `norm()` 会把它变成
+// "[object Object]"：cliSource 报成 'config'，CLI 探活、json5 定位一起失败。
+//
+// 夹具是就地手写的**等价形状**（取自 cosmokit createVolatile 的实现），既不依赖
+// 本机 schemastery 版本，也不触碰真实安装目录。
+// ---------------------------------------------------------------------------
+
+const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
+
+function volatileRef(value) {
+  let current = value
+  return Object.freeze({
+    get: () => current,
+    [VOLATILE_WRITE]: (next) => { current = next },
+  })
+}
+
+test('configString/configStringList/isVolatileRef are the single unwrap gate for config values', () => {
+  const wrapper = volatileRef('C:\\cli\\cli.js')
+
+  // 普通字符串原样通过；包装解出原值
+  assert.equal(configString('C:\\plain\\cli.js'), 'C:\\plain\\cli.js')
+  assert.equal(configString(wrapper), 'C:\\cli\\cli.js')
+  assert.equal(isVolatileRef(wrapper), true)
+  assert.equal(isVolatileRef('C:\\plain'), false)
+
+  // 未配置：undefined / null / 空串 / 包装里的空串或未定义
+  for (const absent of [undefined, null, '', volatileRef(''), volatileRef(undefined), volatileRef(null)]) {
+    assert.equal(configString(absent), '')
+  }
+
+  // 不是 volatile 包装的对象一律当作未配置：绝不 stringify 成 "[object Object]"
+  for (const bogus of [{ path: 'C:\\x' }, { get: () => 'C:\\x' }, { get: 'C:\\x' }, { [Symbol.for('other')]: 1 }, 123, true, ['C:\\x']]) {
+    assert.equal(isVolatileRef(bogus), false)
+    assert.equal(configString(bogus), '')
+  }
+
+  // 非对象列表 / 混合列表：逐项解包并丢弃非字符串与空值
+  assert.deepEqual(configStringList(undefined), [])
+  assert.deepEqual(configStringList('C:\\not-a-list'), [])
+  assert.deepEqual(
+    configStringList([volatileRef('D:\\a'), 'D:\\b', { path: 'D:\\bogus' }, '', volatileRef('')]),
+    ['D:\\a', 'D:\\b'],
+  )
+  // 包装只按共享 symbol 识别，仿冒对象（有 get 无 symbol）不得被解包
+  assert.equal(configString({ get: () => 'C:\\fake' }), '')
+})
+
+test('resolveEnv accepts a volatile-wrapped cliPath exactly like a plain string', () => {
+  const root = tmpRoot()
+  try {
+    const cliDir = path.join(root, 'node_modules', '@deveco', 'deveco-cli')
+    const cli = path.join(cliDir, 'dist', 'cli.js')
+    fs.mkdirSync(path.dirname(cli), { recursive: true })
+    fs.writeFileSync(cli, '#!/usr/bin/env node\n')
+    fs.mkdirSync(path.join(cliDir, 'node_modules', 'json5'), { recursive: true })
+    fs.writeFileSync(path.join(cliDir, 'node_modules', 'json5', 'package.json'), '{}')
+
+    const wrapped = resolveEnv({ cliPath: volatileRef(cli) })
+    const plain = resolveEnv({ cliPath: cli })
+
+    assert.notEqual(wrapped.CLI, '[object Object]', 'volatile 包装绝不能被 stringify 成假路径')
+    assert.equal(wrapped.CLI, cli.replace(/\//g, '\\'))
+    assert.equal(wrapped.cliSource, 'config')
+    assert.equal(wrapped.cliOk, true, '包装的 cliPath 必须能通过探活')
+    assert.equal(wrapped.JSON5_DIR, path.join(cliDir, 'node_modules', 'json5'))
+    assert.equal(wrapped.json5Ok, true, 'json5 由 CLI 入口派生，包装必须一并修复')
+    // 包装与非包装必须解析出完全相同的形状
+    assert.deepEqual({ ...wrapped, cfg: null }, { ...plain, cfg: null })
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('resolveEnv unwraps volatile projectPath/devEcoHome/projectRoots and keeps plain strings', () => {
+  const root = tmpRoot()
+  try {
+    const studio = path.join(root, 'DevEco Studio')
+    fs.mkdirSync(path.join(studio, 'sdk', 'default'), { recursive: true })
+    const proj = path.join(root, 'proj')
+    fs.mkdirSync(proj, { recursive: true })
+
+    const e = resolveEnv({
+      projectPath: volatileRef(proj),
+      devEcoHome: volatileRef(studio),
+      projectRoots: [volatileRef(path.join(root, 'r1')), path.join(root, 'r2')],
+    })
+
+    assert.equal(e.PROJECT, proj.replace(/\//g, '\\'))
+    assert.equal(e.projectSource, 'config')
+    assert.equal(e.DEVECO_HOME, studio.replace(/\//g, '\\'))
+    assert.equal(e.devEcoOk, true)
+    assert.equal(e.devEcoSource, 'config')
+    assert.deepEqual(e.projectRoots.map((p) => p.toLowerCase()), [
+      path.join(root, 'r1').replace(/\//g, '\\').toLowerCase(),
+      path.join(root, 'r2').replace(/\//g, '\\').toLowerCase(),
+    ])
+    assert.ok(!JSON.stringify(e.projectRoots).includes('[object Object]'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('resolveEnv treats absent, empty and volatile-wrapped-empty cliPath as unset (detection still works)', () => {
+  withFakeNpmRoot((root) => {
+    const pkgDir = fakeCliPkgDir(root)
+    writeFakeCliPackage(pkgDir, { name: '@deveco/deveco-cli', version: '1.3.4', bin: { devecocli: 'cli.js' } }, ['cli.js'])
+    const json5Dir = path.join(pkgDir, 'node_modules', 'json5')
+    fs.mkdirSync(json5Dir, { recursive: true })
+    fs.writeFileSync(path.join(json5Dir, 'package.json'), '{}')
+    const entry = path.join(pkgDir, 'cli.js')
+
+    const unsetCases = [
+      ['undefined', undefined],
+      ['empty string', ''],
+      ['wrapper around empty string', volatileRef('')],
+      ['wrapper around undefined', volatileRef(undefined)],
+    ]
+    for (const [label, cliPath] of unsetCases) {
+      const e = resolveEnv({ cliPath })
+      assert.equal(e.cliSource, 'detected', '缺省/空值必须继续走自动探测: ' + label)
+      assert.equal(e.CLI, entry)
+      assert.equal(e.cliOk, true)
+      assert.equal(e.json5Ok, true, '探测到的 CLI 仍要派生出 json5: ' + label)
+    }
+  })
+})
+
+test('resolveEnv ignores a cliPath object that is not a volatile wrapper instead of stringifying it', () => {
+  withFakeNpmRoot((root) => {
+    const pkgDir = fakeCliPkgDir(root)
+    writeFakeCliPackage(pkgDir, { name: '@deveco/deveco-cli', version: '1.3.4', bin: { devecocli: 'cli.js' } }, ['cli.js'])
+    const entry = path.join(pkgDir, 'cli.js')
+
+    // 普通对象、带 get() 但没有 volatile symbol 的仿冒对象、数字、数组：都不是路径
+    const bogus = [
+      { path: 'C:\\bogus\\cli.js' },
+      { get: () => 'C:\\bogus\\cli.js' },
+      { get: 'C:\\bogus\\cli.js' },
+      123,
+      ['C:\\bogus\\cli.js'],
+    ]
+    for (const cliPath of bogus) {
+      const e = resolveEnv({ cliPath })
+      assert.notEqual(e.CLI, '[object Object]', '对象绝不能进 norm(): ' + JSON.stringify(cliPath))
+      assert.ok(!String(e.CLI).includes('bogus'), '非包装对象必须被忽略: ' + JSON.stringify(cliPath))
+      assert.equal(e.CLI, entry, '忽略后回落到自动探测: ' + JSON.stringify(cliPath))
+      assert.equal(e.cliSource, 'detected')
+      assert.equal(e.cliOk, true)
+    }
+  })
+})
+
+test('resolveEnv with a non-wrapper object cliPath and no detection reports missing, never [object Object]', () => {
+  const saved = {}
+  const keys = ['DEVECO_CLI_PATH', 'APPDATA', 'USERPROFILE', 'LOCALAPPDATA', 'PROGRAMFILES']
+  for (const k of keys) { saved[k] = process.env[k]; delete process.env[k] }
+  try {
+    const e = resolveEnv({ cliPath: { path: 'C:\\bogus\\cli.js' } })
+    assert.equal(e.CLI, '')
+    assert.equal(e.cliOk, false)
+    assert.equal(e.cliSource, 'missing')
+    assert.equal(e.json5Ok, false)
+  } finally {
+    for (const k of keys) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k] }
+  }
 })
 

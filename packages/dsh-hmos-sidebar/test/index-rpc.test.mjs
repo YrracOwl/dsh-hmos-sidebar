@@ -16,9 +16,11 @@ import {
   sanitizeTail,
   fence,
   apply,
+  Config,
   SETTINGS_NS,
   DEFAULT_SETTINGS,
 } from '../lib/index.js'
+import { resolveEnv } from '../lib/environment.js'
 
 function tmpRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-hmos-index-'))
@@ -437,6 +439,82 @@ test('fence rejects non-http(s) origins even when host matches', () => {
 test('fence rejects malformed host or origin', () => {
   assert.equal(fence(reqWith({ host: 'not a host' })), false)
   assert.equal(fence(reqWith({ host: '127.0.0.1:3080', origin: '::garbage' })), false)
+})
+
+// ---- volatile 配置引用（0.1.7 线）：宿主读 config.* 必须先解包 ----
+//
+// cordis resolveConfig() 对每个入口 config 无条件跑一遍入口 `Config`，而
+// schemastery ≥ 3.18.4 把 `.volatile()` 字段解析成 cosmokit 引用对象
+// `{ get(), [Symbol.for('cosmokit.volatile.write')] }` —— 于是 0.1.7 线上
+// `config.cliPath` 永远是包装对象。这里的包装是就地手写的等价形状。
+const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
+
+function volatileRef(value) {
+  let current = value
+  return Object.freeze({
+    get: () => current,
+    [VOLATILE_WRITE]: (next) => { current = next },
+  })
+}
+
+test('host helpers unwrap volatile config values (trustedRoots / defaultScreenshotDir)', () => {
+  const prev = process.env.PROJECT_PATH
+  delete process.env.PROJECT_PATH
+  try {
+    const roots = trustedRoots({
+      projectPath: volatileRef('C:\\cfgproj'),
+      projectRoots: [volatileRef('D:\\roots\\a'), 'D:\\roots\\b', { path: 'D:\\bogus' }, volatileRef('')],
+    })
+    const lower = roots.map((r) => r.toLowerCase())
+    assert.equal(roots.length, 3, '包装的根要解析出来，非包装对象与空值被丢弃: ' + JSON.stringify(roots))
+    assert.ok(lower.includes('c:\\cfgproj'))
+    assert.ok(lower.includes('d:\\roots\\a'))
+    assert.ok(lower.includes('d:\\roots\\b'))
+    assert.ok(!roots.some((r) => r.includes('[object Object]') || r.includes('bogus')))
+
+    assert.equal(defaultScreenshotDir({ screenshotDir: volatileRef('C:\\shots') }, 'C:\\project'), 'C:\\shots')
+    assert.equal(
+      defaultScreenshotDir({ screenshotDir: { path: 'C:\\nope' } }, 'C:\\project'),
+      'C:\\project\\.dsh-screenshots',
+      '非 volatile 对象不得被当成截图目录',
+    )
+  } finally {
+    if (prev === undefined) delete process.env.PROJECT_PATH
+    else process.env.PROJECT_PATH = prev
+  }
+})
+
+test('the entry Config output (volatile line included) resolves through resolveEnv like a plain config', () => {
+  const root = tmpRoot()
+  try {
+    const cliDir = path.join(root, 'node_modules', '@deveco', 'deveco-cli')
+    const cli = path.join(cliDir, 'dist', 'cli.js')
+    fs.mkdirSync(path.dirname(cli), { recursive: true })
+    fs.writeFileSync(cli, '#!/usr/bin/env node\n')
+    fs.mkdirSync(path.join(cliDir, 'node_modules', 'json5'), { recursive: true })
+    fs.writeFileSync(path.join(cliDir, 'node_modules', 'json5', 'package.json'), '{}')
+    const proj = path.join(root, 'proj')
+    fs.mkdirSync(proj, { recursive: true })
+
+    // 与 cordis resolveConfig() 完全同一条路径：runtime.Config['~standard'].validate(config)
+    const parsed = Config['~standard'].validate({ cliPath: cli, projectPath: proj, projectRoots: [root] })
+    assert.equal(parsed.issues, undefined, 'Config 必须接受这三个字段')
+    const cfg = parsed.value
+
+    const e = resolveEnv(cfg)
+    assert.equal(e.CLI, cli.replace(/\//g, '\\'), '入口 Config 解析后仍须解出字符串路径')
+    assert.notEqual(e.CLI, '[object Object]')
+    assert.equal(e.cliSource, 'config')
+    assert.equal(e.cliOk, true)
+    assert.equal(e.json5Ok, true)
+    assert.equal(e.PROJECT, proj.replace(/\//g, '\\'))
+    assert.equal(e.projectSource, 'config')
+    assert.deepEqual(e.projectRoots, [root.replace(/\//g, '\\')])
+
+    assert.ok(trustedRoots(cfg).map((r) => r.toLowerCase()).includes(proj.replace(/\//g, '\\').toLowerCase()))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
 
 // ---- 源码级：sync 方法不接受 args.argv ----
