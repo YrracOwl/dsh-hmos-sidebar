@@ -195,13 +195,23 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
 
     // 由 ctx.inject 回调传入已就绪的上下文；两个传输都不会进 exports.inject
     // （每个 inject 名都是硬门槛，声明可选传输会让插件永久 pending）。
+    // 写路径要用的 id：两代宿主按不同的键存设置——≤ 0.1.5 是设置命名空间，≥ 0.1.7 是
+    // loader **入口 id**（本插件是 `dsh-hmos-sidebar`，与命名空间 `hmos-sidebar` 不同）。
+    // 读用入口 id、写用命名空间会让卡片"看得见、存不进"：宿主 write() 按
+    // `row.options.id === ns` 查表，查不到直接抛 `No configurable plugin entry "hmos-sidebar"`。
+    // 所以写地址必须与解析出的读地址同源。
+    let settingsWriteNs = SETTINGS_NS
+
     function resolveSettingsScopeFrom(sctx) {
       const binder = sctx.get('settingsScope')
       if (binder && typeof binder.bind === 'function') return binder.bind({ namespace: SETTINGS_NS })
       const forms = sctx.get('configForms')
       if (forms && typeof forms.get === 'function') {
         const byEntryId = forms.get(SETTINGS_ENTRY_ID)
-        if (byEntryId) return byEntryId
+        if (byEntryId) {
+          settingsWriteNs = SETTINGS_ENTRY_ID
+          return byEntryId
+        }
         return forms.get(SETTINGS_NS)
       }
       return null
@@ -434,7 +444,8 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
               ? { op: 'unset', path: item.path }
               : { op: 'set', path: item.path, value: item.value }
           ))
-          const payload = { ns: SETTINGS_NS, ops }
+          // 写地址与读地址同源：走廊上是入口 id `dsh-hmos-sidebar`，≤ 0.1.5 是命名空间。
+          const payload = { ns: settingsWriteNs, ops }
           if (snap.revision !== undefined) payload.expectedRevision = snap.revision
           const response = await api.settings.mutate(payload)
           const ok = !!(response && response.result && response.result.ok)

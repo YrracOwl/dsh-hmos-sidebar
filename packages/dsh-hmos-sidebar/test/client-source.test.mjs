@@ -33,6 +33,19 @@ test('the settings card also registers on the rc.2 row seat with the ledger key'
   assert.doesNotMatch(source, /props\.form/)
 })
 
+test('the card writes to the same id it resolved the scope from', () => {
+  // Reads and writes must address ONE id. The two hosts key settings differently:
+  // ≤ 0.1.5 by settings namespace (`hmos-sidebar`), ≥ 0.1.7 by the loader ENTRY id
+  // (`dsh-hmos-sidebar`) — different strings for this package. Addressing the write by
+  // the namespace on the corridor makes the host throw
+  // `No configurable plugin entry "hmos-sidebar"`: a card that displays values it
+  // cannot save.
+  assert.match(source, /let settingsWriteNs = SETTINGS_NS/)
+  assert.match(source, /settingsWriteNs = SETTINGS_ENTRY_ID/)
+  assert.match(source, /ns: settingsWriteNs/)
+  assert.doesNotMatch(source, /ns: SETTINGS_NS/)
+})
+
 test('client mounts through official shell.overlay slot', () => {
   assert.match(source, /ctx\.slots\.inject\('shell\.overlay'/)
   assert.match(source, /name: 'shell\.overlay', id: 'dsh-hmos-sidebar'/)
@@ -47,7 +60,10 @@ test('official settings card registers under settings.plugin.item keyed by the n
   assert.match(source, /ctx\.slots\.inject\('settings\.plugin\.item'/)
   assert.match(source, /name: 'settings\.plugin\.item', key: SETTINGS_NS, label: 'HarmonyOS 工作台'/)
   // 卡片走官方 settings 写路径（api.settings.mutate），不私设持久化。
-  assert.match(source, /const payload = \{ ns: SETTINGS_NS, ops \}/)
+  // 写地址必须与解析出的读地址同源：≤ 0.1.5 是命名空间，≥ 0.1.7 是 loader 入口 id
+  // ——本插件两者不同（hmos-sidebar vs dsh-hmos-sidebar），写成命名空间会让走廊上的
+  // 宿主抛 `No configurable plugin entry "hmos-sidebar"`（卡片看得见、存不进）。
+  assert.match(source, /const payload = \{ ns: settingsWriteNs, ops \}/)
   assert.match(source, /api\.settings\.mutate\(payload\)/)
   assert.match(source, /plugin-config-hmos-sidebar-/)
 })
