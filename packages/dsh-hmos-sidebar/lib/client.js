@@ -298,6 +298,7 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
       '.dhssChevronOpen{transform:rotate(180deg)}',
       '.dhssBody{border-top:1px solid var(--dsw-alias-border-l2);margin:0 16px;padding-bottom:8px}',
       '.dhssReadOnly{color:var(--dsw-alias-label-tertiary);margin:12px 0 0;font-size:12px;line-height:1.5}',
+      '.dhssStatus{color:var(--dsw-alias-label-secondary);margin:0 0 4px;font-size:12px;line-height:1.6}',
       '.dhssPending{white-space:nowrap;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-secondary);border-radius:999px;flex:none;padding:1px 8px;font-size:11px;font-weight:500;line-height:17px}',
       '.dhssFooter{border-top:1px solid var(--dsw-alias-border-l2);justify-content:flex-end;align-items:center;gap:8px;padding:12px 0 4px;display:flex}',
       '.dhssFailed{min-width:0;color:var(--dsw-alias-label-error);flex:1;margin:0;font-size:12px;line-height:1.5}',
@@ -385,11 +386,41 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
       )
     }
 
+    // 传输没到 / 没就绪时的可读状态。卡片宁可写清一句，也绝不静默渲染空白。
+    // `unavailable` 是宿主的**终态**回答（设置 mirror 已经有文档、但没有本命名
+    // 空间），不是「还在加载」：0.1.7 走廊上宿主会整体跳过「Config 里没有任何
+    // volatile 字段」的插件入口（dsh-settings 的 SettingsForms.describe() →
+    // volatileForm(schema) === undefined），那时这里就是唯一可见的线索。
+    function settingsTransportState(scope, snap) {
+      if (!scope) {
+        return {
+          label: '等待设置传输',
+          text: '设置传输尚未到达：本插件已挂载，但宿主还没有提供设置服务。传输到达后本卡片会自动刷新；若长期停在这里，说明该宿主没有设置服务。',
+        }
+      }
+      if (snap.status === 'loading') {
+        return { label: '加载中', text: '正在读取本插件的设置…' }
+      }
+      if (snap.mode === 'memory') {
+        return { label: '无宿主设置', text: '此页面运行在进程内模式（非 loopback），没有宿主设置传输，因此这里没有可编辑的值。' }
+      }
+      if (snap.status === 'unavailable') {
+        return {
+          label: '设置不可用',
+          text: '宿主设置服务没有提供本插件的设置命名空间，因此这里没有可编辑的值。请在「插件」页重新安装或更新 dsh-hmos-sidebar 后刷新页面；宿主跳过本插件的设置时不会报错。',
+        }
+      }
+      return { label: '设置不可用', text: '设置当前不可用（status: ' + String(snap.status) + '）。' }
+    }
+
     function HmosSettingsCard(props) {
       ensureCardStyles()
       // 设置传输可能晚于注册到达，因此每次渲染都通过 getter 现读，
       // 而不是依赖注册那一刻捕获的值。
       const getScope = typeof props.getScope === 'function' ? props.getScope : () => props.scope
+      // 传输到达通知：卡片可能早于传输挂载（席位只等 `slots`，管理页一打开就满足，
+      // 而设置传输可能晚得多），只有 apply 知道 scope 何时解析出来。
+      const onScopeArrival = typeof props.onScopeArrival === 'function' ? props.onScopeArrival : null
       const scope = getScope()
       const api = props.api
       const [tick, setTick] = React.useState(0)
@@ -399,9 +430,16 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
       const [failed, setFailed] = React.useState(false)
 
       React.useEffect(() => {
-        if (!scope || typeof scope.subscribe !== 'function') return undefined
-        return scope.subscribe(() => setTick((n) => n + 1))
-      }, [scope])
+        // scope 已就绪：订阅它的快照（status / 值的变化都会重渲染）。
+        if (scope && typeof scope.subscribe === 'function') return scope.subscribe(() => setTick((n) => n + 1))
+        // scope 还没到：等 apply 的注入回调广播「传输到达」。到达后 getScope()
+        // 返回新对象，依赖变化让本 effect 重跑并改订真正的 scope。
+        // 旧实现在这里无条件 return undefined，于是一张先于传输挂载的卡片永远
+        // 不知道传输已经到达，只能停在 `if (!available) return null` 上——
+        // 页面一片空白，控制台一条错都没有。
+        if (!onScopeArrival) return undefined
+        return onScopeArrival(() => setTick((n) => n + 1))
+      }, [scope, onScopeArrival])
 
       const snap = scope && typeof scope.getSnapshot === 'function'
         ? scope.getSnapshot()
@@ -465,9 +503,11 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
       }
 
       void tick
-      if (!available) return null
+      // 传输没到 / 没就绪时也必须渲染：旧的 `if (!available) return null` 让整张
+      // 卡片（连同表头）消失，用户只看到一块空白，日志里什么都没有。
+      const transport = available ? null : settingsTransportState(scope, snap)
 
-      const fields = SETTINGS_FIELDS.map((field) => {
+      const fields = available ? SETTINGS_FIELDS.map((field) => {
         const key = fieldKey(field.path)
         const draft = staged[key]
         const current = getAt(value, field.path)
@@ -488,12 +528,13 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
           onEdit: (next) => stage(field, { text: next, clear: false }),
           onReset: () => stage(field, { text: formatSettingValue(field, getAt(base, field.path)), clear: true }),
         })
-      })
+      }) : null
 
       const body = open ? React.createElement('div', { className: 'dhssBody' },
-        writable ? null : React.createElement('p', { className: 'dhssReadOnly', role: 'status' }, '本部署的设置为只读。'),
+        transport ? React.createElement('p', { className: 'dhssStatus', role: 'status' }, transport.text) : null,
+        available && !writable ? React.createElement('p', { className: 'dhssReadOnly', role: 'status' }, '本部署的设置为只读。') : null,
         fields,
-        React.createElement('div', { className: 'dhssFooter' },
+        available ? React.createElement('div', { className: 'dhssFooter' },
           failed ? React.createElement('p', { className: 'dhssFailed', role: 'status' }, '本部署没有接受这些值，已保留供你修改。') : null,
           React.createElement('button', {
             type: 'button',
@@ -507,7 +548,7 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
             disabled: blocked || !writable,
             onClick: save,
           }, saving ? '保存中…' : '保存'),
-        ),
+        ) : null,
       ) : null
 
       return React.createElement('li', { className: open ? 'dhssCard dhssCardOpen' : 'dhssCard' },
@@ -522,7 +563,9 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
             React.createElement('span', { className: 'dhssName' }, 'HarmonyOS 工作台'),
             React.createElement('span', { className: 'dhssDescription' }, '鸿蒙工程悬浮球与弹窗的默认行为。默认安静：非鸿蒙工作区把悬浮球显示为待命状态（变暗但不隐藏，仍可点击），也不自动展开弹窗。'),
           ),
-          dirty ? React.createElement('span', { className: 'dhssPending' }, '未保存') : null,
+          transport
+            ? React.createElement('span', { className: 'dhssPending' }, transport.label)
+            : (dirty ? React.createElement('span', { className: 'dhssPending' }, '未保存') : null),
           React.createElement(CardChevron, { className: open ? 'dhssChevron dhssChevronOpen' : 'dhssChevron' }),
         ),
         body,
@@ -731,6 +774,23 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
       // 稳定的惰性读取器：注册回调在注册那一刻求值，而设置传输可能晚到，
       // 因此覆盖层与卡片都读 getter 而不是注册时捕获的值。
       const getSettingsScope = () => settingsScope
+      // 传输「到达」通知。席位注册与传输解析是两条独立的等待：`plugins.row.config`
+      // 只等 `slots`（插件管理页一打开就满足），而设置传输（configForms ≥ 0.1.7 /
+      // settingsScope ≤ 0.1.5）完全可能晚于卡片首次渲染。只有 apply 知道 scope
+      // 什么时候解析出来，所以由 apply 拥有这张等待者表，解析成功后广播一次。
+      // 每个卡片实例在自己的 effect 清理里退订（主路径），下面的 ctx.effect 在
+      // 插件卸载/更新时兜底清空——不留悬挂回调。
+      const settingsScopeWaiters = new Set()
+      const onSettingsScopeArrival = (listener) => {
+        settingsScopeWaiters.add(listener)
+        return () => { settingsScopeWaiters.delete(listener) }
+      }
+      const announceSettingsScope = () => {
+        for (const listener of Array.from(settingsScopeWaiters)) {
+          try { listener() } catch (_) { /* 单个卡片的渲染异常不得挡住其它等待者 */ }
+        }
+      }
+      ctx.effect(() => () => { settingsScopeWaiters.clear() }, 'dsh-hmos-sidebar: settings scope waiters')
       let connectionApi = null
       try {
         const connection = ctx.get('connection')
@@ -757,13 +817,17 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
       // 尽管 register 正常返回。（仓外的 dshmarket 包能正常渲染，用的就是这个嵌套写法。）
       let disposeCard = null
       const registerCard = (sctx) => {
-        if (settingsScope !== null || disposeCard !== null) return
+        // 用真值而不是 `!== null`：解析失败必须留下重试的机会（返回值可能是
+        // undefined），否则一个坏掉的传输会把卡片永久锁在「等待」上。
+        if (settingsScope || disposeCard !== null) return
         settingsScope = resolveSettingsScopeFrom(sctx)
-        if (settingsScope === null) return
+        if (!settingsScope) return
+        // 传输到达：唤醒已经挂载、但首次渲染时还没有 scope 的卡片。
+        announceSettingsScope()
         // 在 scoped 上下文上注册，卡片用 getter 读取稳定的 scope。
         disposeCard = sctx.slots.inject('settings.plugin.item', () => sctx.slots.register(
           { name: 'settings.plugin.item', key: SETTINGS_NS, label: 'HarmonyOS 工作台' },
-          () => React.createElement(HmosSettingsCard, { getScope: getSettingsScope, api: connectionApi }),
+          () => React.createElement(HmosSettingsCard, { getScope: getSettingsScope, onScopeArrival: onSettingsScopeArrival, api: connectionApi }),
         ))
       }
       // 第一次等待只在 settingsScope 存在时触发；第二次覆盖改名后的传输，
@@ -789,7 +853,7 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
         if (props && props.view === 'summary') {
           return React.createElement('span', { style: SUMMARY_STYLE }, '鸿蒙工作台开关：安静模式下非鸿蒙工作区的悬浮球显示为待命状态。')
         }
-        return React.createElement(HmosSettingsCard, { getScope: getSettingsScope, api: connectionApi })
+        return React.createElement(HmosSettingsCard, { getScope: getSettingsScope, onScopeArrival: onSettingsScopeArrival, api: connectionApi })
       }))
       ctx.inject(['slots'], registerRowConfig)
 

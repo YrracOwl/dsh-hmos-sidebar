@@ -169,7 +169,19 @@ test('@modelcontextprotocol/sdk is never a hard dependency and schemastery still
     'a private copy makes pnpm nest an isolated store DSH cannot realpath',
   )
   // @deepseek-ai/schemastery stays exactly where it was: the one runtime dependency.
-  assert.equal(pkg.dependencies['@deepseek-ai/schemastery'], '^3.18.1')
+  // The FLOOR matters, not the caret alone: the profile root hoists the older 3.18.2
+  // line, and `^3.18.1` is *satisfied* by that hoisted copy — so pnpm never
+  // materializes a volatile-capable copy, `SettingsForms.describe()` skips this entry
+  // (no volatile field), and the settings card is left without a namespace. Measured
+  // on the live rc.2 profile: this package resolved 3.18.2 while the three sibling
+  // pills resolved their own 3.18.4. `.volatile()` exists from 3.18.4 on.
+  const schemasteryRange = pkg.dependencies['@deepseek-ai/schemastery']
+  assert.match(schemasteryRange, /^\^3\.\d+\.\d+$/, 'keep the private dependency a caret range on the 3.x line')
+  const [major, minor, patch] = schemasteryRange.slice(1).split('.').map(Number)
+  assert.ok(
+    major > 3 || (major === 3 && (minor > 18 || (minor === 18 && patch >= 4))),
+    `the declared floor must exclude schemastery lines without .volatile() (got ${schemasteryRange})`,
+  )
 })
 
 test('SDK peer range is satisfied by the host-hoisted 1.x copy and rejects the next major', () => {

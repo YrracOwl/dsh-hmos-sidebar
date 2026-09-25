@@ -215,6 +215,10 @@ function createDocumentMock() {
   return {
     body,
     documentElement: { style: {} },
+    // The settings card creates its style tag on first render
+    // (ensureCardStyles → document.createElement('style') + head.appendChild).
+    head: { children: [], appendChild(child) { this.children.push(child) } },
+    createElement(tag) { return { tag, dataset: {}, style: {}, textContent: '' } },
     querySelector() { return null },
     querySelectorAll() { return [] },
     addEventListener(type, fn) {
@@ -508,4 +512,434 @@ test('a host with no settings transport still activates and registers only the o
     'no settings card without a settings transport',
   )
   dispose()
+})
+
+// ---------------------------------------------------------------------------
+// The late-transport contract of the settings card.
+//
+// `plugins.row.config` only waits for `slots` — the plugin-manager page declares
+// it the moment it opens — while the settings transport itself (`configForms` on
+// ≥ 0.1.7, `settingsScope` on ≤ 0.1.5) can land much later, and answers that do
+// not carry this plugin's namespace land as a terminal non-ready snapshot. The
+// card must therefore render something visible in the meantime and re-render
+// itself when the transport lands; it may never sit on a silent null.
+//
+// The rc.2 occupant is an ordinary React function component, so a compact React
+// (element objects, hook slots, deps-compared effects, sync state updates) is
+// enough to mount the REAL component registered by the REAL apply() inside the vm
+// sandbox and to drive that path end to end.
+// ---------------------------------------------------------------------------
+
+test('the settings card carries the late-transport contract in source', () => {
+  // 1. 旧的静默分支必须消失，改成一个可见状态对象（注释里引用旧代码是允许的，
+  //    所以这里只否定真正的语句行）。
+  assert.doesNotMatch(source, /^\s*if \(!available\) return null\s*$/m,
+    'the card must not return null when the snapshot is not ready')
+  assert.match(source, /function settingsTransportState\(scope, snap\)/)
+  assert.match(source, /const transport = available \? null : settingsTransportState\(scope, snap\)/)
+  // 2. 诚实状态齐备，且都能被用户看见（表头 pill + 正文说明）。
+  assert.match(source, /label: '等待设置传输'/)
+  assert.match(source, /label: '加载中'/)
+  assert.match(source, /label: '设置不可用'/)
+  assert.match(source, /'宿主设置服务没有提供本插件的设置命名空间/)
+  assert.match(source, /React\.createElement\('p', \{ className: 'dhssStatus', role: 'status' \}, transport\.text\)/)
+  // 3. 没就绪时既不渲染字段也不渲染保存控件：绝不伪造值，也没有用不了的保存按钮。
+  assert.match(source, /const fields = available \? SETTINGS_FIELDS\.map/)
+  assert.match(source, /available \? React\.createElement\('div', \{ className: 'dhssFooter' \}/)
+  assert.match(source, /available && !writable \? React\.createElement\('p', \{ className: 'dhssReadOnly'/)
+  assert.match(source, /disabled: blocked \|\| !writable/,
+    'the existing writable gate stays on the save button')
+  // 4. 传输到达由 apply 拥有的等待者表广播；卡片订阅它，并在无 scope 时改订它。
+  assert.match(source, /const settingsScopeWaiters = new Set\(\)/)
+  assert.match(source, /const onSettingsScopeArrival = \(listener\) => \{/)
+  assert.match(source, /const announceSettingsScope = \(\) => \{/)
+  assert.match(source, /announceSettingsScope\(\)/,
+    'the inject callback must announce the arrival')
+  assert.match(source, /if \(!onScopeArrival\) return undefined/)
+  assert.match(source, /return onScopeArrival\(\(\) => setTick\(\(n\) => n \+ 1\)\)/)
+  assert.match(source, /const onScopeArrival = typeof props\.onScopeArrival === 'function'/)
+  // 两张席位都要拿到同一个通知器（≤0.1.5 的 settings.plugin.item 与 rc.2 的行席位）。
+  assert.equal(
+    (source.match(/onScopeArrival: onSettingsScopeArrival/g) || []).length,
+    2,
+    'both seats must pass the arrival notifier',
+  )
+  // 5. 释放路径必须存在：卡片实例退订 + 插件卸载/更新时 apply 兜底清空。
+  assert.match(source, /ctx\.effect\(\(\) => \(\) => \{ settingsScopeWaiters\.clear\(\) \}, 'dsh-hmos-sidebar: settings scope waiters'\)/)
+  // 6. 解析失败留下重试机会（真值判断，不是 `!== null`）。
+  assert.match(source, /if \(settingsScope \|\| disposeCard !== null\) return/)
+  assert.match(source, /if \(!settingsScope\) return/)
+})
+
+/** Minimal React: elements, hook slots, deps-compared effects, sync updates. */
+function createMiniReact() {
+  const created = []
+  const instances = new Map()
+  let current = null
+  let root = null
+  let tree = null
+  let dirty = false
+  let inflight = false
+
+  function instanceFor(path) {
+    let instance = instances.get(path)
+    if (instance === undefined) {
+      instance = { hooks: [], effects: [], pending: [], cursor: 0 }
+      instances.set(path, instance)
+    }
+    return instance
+  }
+
+  function renderNode(node, path) {
+    if (node === null || node === undefined || node === false || node === true) return null
+    if (typeof node === 'string' || typeof node === 'number') return { text: String(node) }
+    if (Array.isArray(node)) {
+      return node.map((child, index) => renderNode(child, path + '/' + index)).filter((child) => child !== null)
+    }
+    if (typeof node === 'object' && node.__element === true) {
+      if (typeof node.type === 'function') {
+        const instance = instanceFor(path)
+        const previous = current
+        current = instance
+        instance.cursor = 0
+        instance.pending = []
+        let output
+        try { output = node.type(node.props) } finally { current = previous }
+        return { path, name: node.type.name || 'component', props: node.props, output: renderNode(output, path + '#') }
+      }
+      return {
+        tag: node.type,
+        props: node.props,
+        children: node.children.map((child, index) => renderNode(child, path + '/' + index)).filter((child) => child !== null),
+      }
+    }
+    return null
+  }
+
+  function runEffects() {
+    for (const instance of instances.values()) {
+      for (const entry of instance.pending) {
+        const previous = instance.effects[entry.slot]
+        const unchanged = previous !== undefined && entry.deps !== undefined && previous.deps !== undefined
+          && entry.deps.length === previous.deps.length
+          && entry.deps.every((dep, index) => Object.is(dep, previous.deps[index]))
+        if (unchanged) continue
+        if (previous !== undefined && typeof previous.cleanup === 'function') previous.cleanup()
+        instance.effects[entry.slot] = { deps: entry.deps, cleanup: entry.effect() }
+      }
+      instance.pending = []
+    }
+  }
+
+  function flush() {
+    if (inflight) { dirty = true; return tree }
+    inflight = true
+    try {
+      let guard = 0
+      do {
+        dirty = false
+        tree = renderNode(root, 'root')
+        runEffects()
+      } while (dirty && (guard += 1) < 50)
+    } finally {
+      inflight = false
+    }
+    return tree
+  }
+
+  const react = {
+    createElement(type, props, ...children) {
+      const element = {
+        __element: true,
+        type,
+        props: props || {},
+        children: children.flat(Infinity).filter((child) => child !== null && child !== undefined && child !== false && child !== true),
+      }
+      created.push(element)
+      return element
+    },
+    useState(initial) {
+      const instance = current
+      const slot = instance.cursor++
+      if (!(slot in instance.hooks)) instance.hooks[slot] = typeof initial === 'function' ? initial() : initial
+      return [instance.hooks[slot], (next) => {
+        const value = typeof next === 'function' ? next(instance.hooks[slot]) : next
+        if (Object.is(value, instance.hooks[slot])) return
+        instance.hooks[slot] = value
+        // Real React schedules this update; the harness renders it synchronously
+        // so the assertion can read the tree the card produced on its own.
+        if (inflight) dirty = true
+        else flush()
+      }]
+    },
+    useEffect(effect, deps) {
+      const instance = current
+      const slot = instance.cursor++
+      instance.pending.push({ slot, effect, deps })
+    },
+    useRef(initial) {
+      const instance = current
+      const slot = instance.cursor++
+      if (!(slot in instance.hooks)) instance.hooks[slot] = { current: initial }
+      return instance.hooks[slot]
+    },
+    useCallback(fn) { return fn },
+    useMemo(fn) { return fn() },
+    useSyncExternalStore(_subscribe, getSnapshot) { return getSnapshot() },
+    Fragment: 'Fragment',
+  }
+  react.created = created
+  react.mount = (element) => { root = element; instances.clear(); return flush() }
+  react.tree = () => tree
+  react.unmount = () => {
+    for (const instance of instances.values()) {
+      for (const entry of instance.effects) if (entry !== undefined && typeof entry.cleanup === 'function') entry.cleanup()
+    }
+    instances.clear()
+    root = null
+    tree = null
+  }
+  return react
+}
+
+/** One settings scope: `getSnapshot()` + `subscribe()` + a test-side `emit`. */
+function scopeController(initial) {
+  const listeners = new Set()
+  let snapshot = initial
+  return {
+    getSnapshot: () => snapshot,
+    subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener) } },
+    emit(next) { snapshot = next; for (const listener of Array.from(listeners)) listener() },
+    listenerCount: () => listeners.size,
+  }
+}
+
+/**
+ * fakeCtx whose optional `ctx.inject(names, cb)` waits fire only when the test
+ * provides the service — exactly the rc.2 shape where the row seat (slots) is
+ * declared before the settings transport exists.
+ */
+function deferredCtx() {
+  const ctx = {
+    services: {},
+    waiters: [],
+    registrations: [],
+    components: [],
+    effectCleanups: [],
+    slots: {
+      inject(name, callback) { callback(); return () => {} },
+      register(options, component) { ctx.registrations.push(options); ctx.components.push(component) },
+    },
+    get(name) { const service = ctx.services[name]; return typeof service === 'function' ? service() : service },
+    inject(names, callback) {
+      const list = Array.isArray(names) ? names : [names]
+      ctx.waiters.push({ names: list, callback })
+      ctx.tryWaiters()
+    },
+    tryWaiters() {
+      for (const waiter of ctx.waiters.slice()) {
+        if (!waiter.names.every((name) => name === 'slots' || ctx.get(name) !== undefined)) continue
+        ctx.waiters = ctx.waiters.filter((candidate) => candidate !== waiter)
+        waiter.callback({ get: (name) => ctx.get(name), slots: ctx.slots })
+      }
+    },
+    provide(name, service) { ctx.services[name] = service; ctx.tryWaiters() },
+    effect(fn) {
+      ctx.effectCleanups.push(fn())
+      ctx.effectCleanup = () => {
+        for (const cleanup of ctx.effectCleanups.splice(0)) {
+          try { if (typeof cleanup === 'function') cleanup() } catch {}
+        }
+      }
+    },
+  }
+  return ctx
+}
+
+function loadClientRenderApi() {
+  const documentMock = createDocumentMock()
+  const react = createMiniReact()
+  let spec = null
+  const sandbox = {
+    window: {
+      __ModuleLoader__: { load: (loaded) => { spec = loaded } },
+      innerWidth: 1280,
+      innerHeight: 800,
+      matchMedia: () => ({ addEventListener() {}, removeEventListener() {} }),
+    },
+    document: documentMock,
+    localStorage: { getItem: () => null, setItem() {} },
+    getComputedStyle: () => ({ backgroundColor: 'rgba(0,0,0,0)' }),
+    fetch: () => Promise.resolve({ json: () => Promise.resolve({ ok: false }) }),
+    MutationObserver: class { observe() {} disconnect() {} },
+    setInterval: () => 0,
+    clearInterval() {},
+    setTimeout: () => 0,
+    clearTimeout() {},
+  }
+  vm.runInNewContext(source, sandbox, { filename: 'lib/client.js' })
+  assert.ok(spec && typeof spec.factory === 'function', 'bundle factory must be captured')
+  const bundleExports = spec.factory((name) => {
+    if (name === 'react') return react
+    if (name === 'react-dom/client') return { createRoot: () => ({ render() {}, unmount() {} }) }
+    if (name === 'react-dom') return { createPortal: (element) => element }
+    throw new Error('unexpected require: ' + name)
+  })
+  return { apply: bundleExports.apply, ctx: deferredCtx(), react, document: documentMock }
+}
+
+function collectNodes(node, out = []) {
+  if (node === null || node === undefined) return out
+  if (Array.isArray(node)) {
+    for (const child of node) collectNodes(child, out)
+    return out
+  }
+  out.push(node)
+  if (node.output !== undefined) collectNodes(node.output, out)
+  if (node.children !== undefined) for (const child of node.children) collectNodes(child, out)
+  return out
+}
+
+function cardText(tree) {
+  return collectNodes(tree).filter((node) => typeof node.text === 'string').map((node) => node.text).join(' ')
+}
+
+function byClass(tree, className) {
+  return collectNodes(tree).filter((node) => node.props !== undefined && node.props.className === className)
+}
+
+/** apply() + the REAL rc.2 row-config occupant, mounted before any transport. */
+function mountRowConfigCard() {
+  const api = loadClientRenderApi()
+  api.apply(api.ctx)
+  const index = api.ctx.registrations.findIndex((registration) => registration.name === 'plugins.row.config')
+  assert.ok(index >= 0, 'apply must register the rc.2 row seat')
+  api.react.mount(api.react.createElement(api.ctx.components[index], { view: 'page' }))
+  const props = api.react.created.map((element) => element.props).find((candidate) => typeof candidate.onScopeArrival === 'function')
+  assert.ok(props !== undefined, 'the card must receive the scope-arrival notifier')
+  return { apply: api.apply, ctx: api.ctx, react: api.react, onScopeArrival: props.onScopeArrival }
+}
+
+function openCard(react) {
+  const header = byClass(react.tree(), 'dhssHeader')
+  assert.equal(header.length, 1, 'the card header must always render')
+  header[0].props.onClick()
+  return react.tree()
+}
+
+test('an absent settings transport renders a visible waiting state, never nothing', () => {
+  const { react, ctx } = mountRowConfigCard()
+  const tree = react.tree()
+  // 旧实现在这里返回 null：管理页的配置区整块空白，控制台一条错都没有。
+  assert.ok(tree !== null, 'the row config page must render an element, not null')
+  assert.equal(byClass(tree, 'dhssHeader').length, 1, 'the card header renders without any transport')
+  assert.match(cardText(tree), /等待设置传输/)
+  assert.deepEqual(Object.keys(ctx.services), [], 'no transport was provided in this test')
+
+  const opened = openCard(react)
+  assert.equal(byClass(opened, 'dhssStatus').length, 1, 'the expanded card explains the state')
+  assert.match(cardText(opened), /设置传输尚未到达/)
+  // 没有取值路径时既不渲染字段也不渲染保存按钮（没有值可伪造，也没有点不动的保存）。
+  assert.equal(byClass(opened, 'dhssSwitch').length, 0)
+  assert.equal(byClass(opened, 'dhssSave').length, 0)
+})
+
+test('the card re-renders when the transport arrives after mount, and its save gate still works', () => {
+  const { react, ctx } = mountRowConfigCard()
+  openCard(react)
+  assert.match(cardText(react.tree()), /等待设置传输/)
+
+  const controller = scopeController({
+    status: 'loading', value: undefined, base: undefined, user: undefined, revision: undefined, writable: false, mode: 'host',
+  })
+  const readIds = []
+  ctx.provide('configForms', { get: (id) => { readIds.push(id); return controller } })
+
+  // 到达即自行重渲染，并且按 loader 入口 id 读（写地址同源由源码断言把守）。
+  assert.deepEqual(readIds, ['dsh-hmos-sidebar'])
+  assert.match(cardText(react.tree()), /加载中/)
+  assert.doesNotMatch(cardText(react.tree()), /等待设置传输/)
+  assert.equal(controller.listenerCount(), 1, 'the card subscribed to the arrived scope')
+
+  controller.emit({
+    status: 'ready',
+    value: { popup: { keepCollapsed: true }, ball: { hideWithoutProject: true } },
+    base: {},
+    user: {},
+    revision: 4,
+    writable: true,
+    mode: 'host',
+  })
+  const ready = react.tree()
+  const switches = byClass(ready, 'dhssSwitch')
+  assert.equal(switches.length, 2, 'both switches render once the snapshot is ready')
+  assert.deepEqual(switches.map((node) => node.props.checked), [true, true], 'values come from the snapshot')
+  assert.equal(byClass(ready, 'dhssStatus').length, 0, 'the status line disappears once values are live')
+  assert.equal(byClass(ready, 'dhssReadOnly').length, 0)
+  assert.equal(byClass(ready, 'dhssSave').length, 1)
+  assert.equal(byClass(ready, 'dhssSave')[0].props.disabled, true, 'nothing staged → save stays disabled')
+
+  // 交互不变：改一个开关 → 出现「未保存」，保存按钮变为可用；只读部署仍不可存。
+  switches[0].props.onChange({ target: { checked: false } })
+  const dirty = react.tree()
+  assert.match(cardText(dirty), /未保存/)
+  assert.doesNotMatch(cardText(dirty), /等待设置传输/)
+  assert.equal(byClass(dirty, 'dhssSave')[0].props.disabled, false, 'a staged change enables save')
+  assert.equal(byClass(dirty, 'dhssDiscard')[0].props.disabled, false)
+
+  controller.emit({
+    status: 'ready',
+    value: { popup: { keepCollapsed: true }, ball: { hideWithoutProject: true } },
+    base: {},
+    user: {},
+    revision: 4,
+    writable: false,
+    mode: 'host',
+  })
+  const readOnly = react.tree()
+  assert.equal(byClass(readOnly, 'dhssReadOnly').length, 1, 'a read-only deployment says so')
+  assert.equal(byClass(readOnly, 'dhssSave')[0].props.disabled, true, 'no save control that cannot work')
+  assert.equal(byClass(readOnly, 'dhssSwitch')[0].props.disabled, true)
+})
+
+test('a transport without this namespace says so actionably instead of rendering an empty box', () => {
+  // 这正是 0.1.7 走廊上的真实故障形态：宿主服务存在、mirror 也答了，但
+  // describe() 跳过了本入口（Config 里没有 volatile 字段），于是快照终态是
+  // `unavailable`。卡片必须把这件事说出来，而不是安静地什么都不画。
+  const { react, ctx } = mountRowConfigCard()
+  openCard(react)
+  const controller = scopeController({
+    status: 'unavailable', value: undefined, base: undefined, user: undefined, revision: undefined, writable: false, mode: 'host',
+  })
+  ctx.provide('configForms', { get: () => controller })
+
+  const tree = react.tree()
+  assert.match(cardText(tree), /设置不可用/)
+  assert.match(cardText(tree), /重新安装或更新 dsh-hmos-sidebar/, 'the state must be actionable')
+  assert.equal(byClass(tree, 'dhssStatus').length, 1)
+  assert.equal(byClass(tree, 'dhssSwitch').length, 0, 'no fabricated values')
+  assert.equal(byClass(tree, 'dhssSave').length, 0, 'no save control that cannot work')
+})
+
+test('the arrival mechanism is disposed: unsubscribe and the unload cleanup both detach listeners', () => {
+  // (a) 卡片实例自己的 effect 清理：onScopeArrival 返回的退订函数必须真的摘掉监听。
+  const first = mountRowConfigCard()
+  const kept = []
+  const removed = []
+  first.onScopeArrival(() => kept.push(1))
+  const off = first.onScopeArrival(() => removed.push(1))
+  off()
+  first.ctx.provide('configForms', { get: () => scopeController({ status: 'loading', mode: 'host' }) })
+  assert.deepEqual([kept.length, removed.length], [1, 0], 'the returned disposer removed exactly its own listener')
+  first.react.unmount()
+
+  // (b) 插件卸载/更新：apply 的 ctx.effect 兜底清空等待者表，卸载前注册的监听不再被唤醒。
+  const second = mountRowConfigCard()
+  const stale = []
+  const fresh = []
+  second.onScopeArrival(() => stale.push(1))
+  second.ctx.effectCleanup()
+  second.onScopeArrival(() => fresh.push(1))
+  second.ctx.provide('configForms', { get: () => scopeController({ status: 'loading', mode: 'host' }) })
+  assert.deepEqual([stale.length, fresh.length], [0, 1], 'the unload cleanup dropped every waiter apply owned')
 })

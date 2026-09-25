@@ -43,7 +43,8 @@ HarmonyOS 开发工作台（DSH Web 悬浮窗，**Windows-only**）。一个 npm
 | 在非鸿蒙工作区，悬浮球显示为待命状态（`ball.hideWithoutProject`） | 开 | 当前工作区未探测到鸿蒙工程（含探测进行中/探测链路不可用）时悬浮球变暗并略微缩小，但**始终可见、可点击**——它是打开工作台的唯一入口；悬停或键盘聚焦恢复全不透明度。关闭后悬浮球保持全强度显示 |
 
 - 开关通过官方 settings 服务持久化（保存/放弃修改/恢复默认/只读提示与官方卡片一致）。两代宿主的通道不同：≤ 0.1.5 由 host 注册 `hmos-sidebar` 命名空间、客户端经 `settingsScope` 订阅；≥ 0.1.7 没有 `register`，命名空间就是本插件入口导出的 `Config`（键为 loader entry id `dsh-hmos-sidebar`，两个叶子标记 `volatile`），客户端经 `configForms` 读同一份值。卡片**席位**同样分两代：≤ 0.1.5 声明 `settings.plugin.item`（键 `hmos-sidebar`）；0.1.7-rc.2 删除了该槽位，bundle 行的配置席位是带键的 `plugins.row.config`，键为 `dsh-hmos-sidebar#dsh-hmos-sidebar`，只有该精确键在注册账本上时插件管理页才渲染该行的配置入口。
-- 设置服务不可用时整体回退到上表默认值，主功能不受影响。
+- 设置传输可能**晚于卡片挂载**到达（行席位只等 `slots`，插件管理页一打开就满足；`configForms`/`settingsScope` 可能更晚），所以卡片在快照就绪前也会渲染出来，并在表头显示 等待设置传输 / 加载中 / 设置不可用，展开后有对应说明——不再静默渲染空白；传输到达后卡片自行重渲染。未就绪时既不渲染开关也不显示用不了的「保存」。
+- 设置服务不可用时整体回退到上表默认值，主功能不受影响。若卡片显示「设置不可用」，说明宿主设置服务里没有本插件的命名空间：0.1.7 走廊上宿主会整体跳过「入口 `Config` 里没有任何 `volatile` 字段」的插件（`SettingsForms.describe()` 静默丢弃，日志无错），按卡片提示在「插件」页重装/更新本包后刷新即可恢复。
 
 ## 工具与 RPC 的分离
 
@@ -90,7 +91,7 @@ pnpm exec dsh-hmos-sidebar install-presets --all
 - ≤ 0.1.5 升到 ≥ 0.1.7 后：旧目录副本不会再被新 roster 读取（不是报错，是静默消失），重跑一次安装器即写成声明式；`<DSH_HOME>/.agent-presets/` 下的旧目录可自行删除。
 - 完成后重启 DSH Profile（≥ 0.1.7 的 profile 补丁层受 HMR 监听，通常热重载即可，但 roster 重建以重启最稳）。
 
-包内运行时依赖仅 `@deepseek-ai/schemastery`。`@deepseek-ai/dsh-tools` 与 `@modelcontextprotocol/sdk` 都声明为**可选 `peerDependency`**（`peerDependenciesMeta.optional: true`），不随插件单独安装，两者都从 DSH profile 解析，避免在插件内复制并遮蔽宿主版本。`@modelcontextprotocol/sdk` 只被 `./tools` 里的 LSP 工具（`dcli__lsp_check` / `dcli__lsp_restart`）使用，并且是**受保护的动态 import**：解析不到它不会阻止 `./tools`（以及静态引用它的 host 半）加载，只有真正调用 LSP 工具时才报「请安装该可选 peer 依赖」的可操作错误。**不要把它放回 `dependencies`**：pnpm 会在包内嵌套一层 `.pnpm` 隔离仓库，DSH 的包闭包遍历在 Windows 上 `realpath` 会 `EPERM` 失败，整个 Web 启动前就崩。
+包内运行时依赖仅 `@deepseek-ai/schemastery`，**声明下限必须是 `^3.18.4`**：`.volatile()` 从 3.18.4 才有，而 profile 根通常 hoist 着旧的 3.18.2；若下限写成 `^3.18.1`，pnpm 会认为根上那份 3.18.2 已满足范围、不再往包内物化一份支持 `volatile` 的副本，宿主 `SettingsForms.describe()` 就会静默丢掉本插件入口（没有任何 `volatile` 字段），设置卡片整个不存在且不报错（实测：同一 profile 里本包解析到 3.18.2，而三个兄弟胶囊各自解析到 3.18.4）。`@deepseek-ai/dsh-tools` 与 `@modelcontextprotocol/sdk` 都声明为**可选 `peerDependency`**（`peerDependenciesMeta.optional: true`），不随插件单独安装，两者都从 DSH profile 解析，避免在插件内复制并遮蔽宿主版本。`@modelcontextprotocol/sdk` 只被 `./tools` 里的 LSP 工具（`dcli__lsp_check` / `dcli__lsp_restart`）使用，并且是**受保护的动态 import**：解析不到它不会阻止 `./tools`（以及静态引用它的 host 半）加载，只有真正调用 LSP 工具时才报「请安装该可选 peer 依赖」的可操作错误。**不要把它放回 `dependencies`**：pnpm 会在包内嵌套一层 `.pnpm` 隔离仓库，DSH 的包闭包遍历在 Windows 上 `realpath` 会 `EPERM` 失败，整个 Web 启动前就崩。
 
 包为 **ESM-only**（`"type":"module"`，exports 无 `require` 条件）：Node ≥22.12 可原生 `require()`，更早版本 `require` 会 `ERR_REQUIRE_ESM`；`engines` 要求 Node ≥18（`npm test` 使用 `node --test`，Node 18 兼容，自动发现 `test/*.test.mjs`）。`./client` 导出是浏览器专用 bundle，**不可在 Node 中 import**。
 
