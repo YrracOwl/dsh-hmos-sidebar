@@ -90,11 +90,11 @@ pnpm exec dsh-hmos-sidebar install-presets --all
 - ≤ 0.1.5 升到 ≥ 0.1.7 后：旧目录副本不会再被新 roster 读取（不是报错，是静默消失），重跑一次安装器即写成声明式；`<DSH_HOME>/.agent-presets/` 下的旧目录可自行删除。
 - 完成后重启 DSH Profile（≥ 0.1.7 的 profile 补丁层受 HMR 监听，通常热重载即可，但 roster 重建以重启最稳）。
 
-包内直接依赖仅 `@modelcontextprotocol/sdk`。`@deepseek-ai/dsh-tools` 是 DSH 共享宿主包，声明为可选 `peerDependency`，不随插件单独安装，避免在插件内复制并遮蔽宿主版本；`./tools` 入口仅在 DSH 宿主提供该包时使用。
+包内运行时依赖仅 `@deepseek-ai/schemastery`。`@deepseek-ai/dsh-tools` 与 `@modelcontextprotocol/sdk` 都声明为**可选 `peerDependency`**（`peerDependenciesMeta.optional: true`），不随插件单独安装，两者都从 DSH profile 解析，避免在插件内复制并遮蔽宿主版本。`@modelcontextprotocol/sdk` 只被 `./tools` 里的 LSP 工具（`dcli__lsp_check` / `dcli__lsp_restart`）使用，并且是**受保护的动态 import**：解析不到它不会阻止 `./tools`（以及静态引用它的 host 半）加载，只有真正调用 LSP 工具时才报「请安装该可选 peer 依赖」的可操作错误。**不要把它放回 `dependencies`**：pnpm 会在包内嵌套一层 `.pnpm` 隔离仓库，DSH 的包闭包遍历在 Windows 上 `realpath` 会 `EPERM` 失败，整个 Web 启动前就崩。
 
 包为 **ESM-only**（`"type":"module"`，exports 无 `require` 条件）：Node ≥22.12 可原生 `require()`，更早版本 `require` 会 `ERR_REQUIRE_ESM`；`engines` 要求 Node ≥18（`npm test` 使用 `node --test`，Node 18 兼容，自动发现 `test/*.test.mjs`）。`./client` 导出是浏览器专用 bundle，**不可在 Node 中 import**。
 
-依赖脚本白名单：pnpm 11 若拦构建脚本，参照 dsh-better-sidebar 的安装脚本在 profile 的 `pnpm-workspace.yaml` 加 `allowBuilds` / `minimumReleaseAgeExclude`；npm 12 若报 `EALLOWSCRIPTS`，是 `@modelcontextprotocol/sdk`→express 传递依赖的 `prepare` 脚本被 `allow-scripts` 白名单拦下，把相关包（`path-to-regexp content-type eventsource express-rate-limit ip-address`）加进 `~/.npmrc` 的 `allow-scripts`，或直接走官方 `dsh plugin add` 的安装流程。
+依赖脚本白名单：pnpm 11 若拦构建脚本，参照 dsh-better-sidebar 的安装脚本在 profile 的 `pnpm-workspace.yaml` 加 `allowBuilds` / `minimumReleaseAgeExclude`。本包自身不再安装任何带构建脚本的依赖；若 profile 因其他包安装 `@modelcontextprotocol/sdk` 而在 npm 12 报 `EALLOWSCRIPTS`，那是它→express 传递依赖的 `prepare` 脚本被 `allow-scripts` 白名单拦下，把相关包（`path-to-regexp content-type eventsource express-rate-limit ip-address`）加进 `~/.npmrc` 的 `allow-scripts`，或直接走官方 `dsh plugin add` 的安装流程。
 
 ## 配置
 

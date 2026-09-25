@@ -3,7 +3,11 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { apply as applyDcliTools, applyForPlatform, TOOLS, toolsSupportedOn, disposeLspInstance } from '../lib/dcli-tools.mjs'
+import { fileURLToPath } from 'node:url'
+import {
+  apply as applyDcliTools, applyForPlatform, TOOLS, toolsSupportedOn, disposeLspInstance,
+  requireMcpSdk, mcpSdkMissingMessage,
+} from '../lib/dcli-tools.mjs'
 
 test('module exports 41 tools with unique dcli__ names', () => {
   assert.equal(TOOLS.length, 41)
@@ -294,4 +298,71 @@ test('disposeLspInstance closes transport when no client, catches rejection, no 
   } finally {
     process.off('unhandledRejection', onUnhandled)
   }
+})
+
+// ---- 可选 peer @modelcontextprotocol/sdk：受保护的动态 import ----
+// 该 SDK 只被 LSP 工具用到，且由宿主 profile 提供。它绝不能是静态 import：缺包时静态
+// import 会在模块图解析期抛 ERR_MODULE_NOT_FOUND，把整个 ./tools（以及静态引用它的
+// lib/index.js）一起打挂。这里同时钉住“动态 import + 明确错误路径”两件事。
+const dcliToolsSource = fs.readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'lib', 'dcli-tools.mjs'),
+  'utf8',
+)
+
+test('optional MCP SDK is loaded by a guarded dynamic import, never a static one', () => {
+  // 任何 `import ... from '@modelcontextprotocol/sdk...'` 静态导入都不允许存在。
+  assert.doesNotMatch(
+    dcliToolsSource,
+    /^\s*import\s+(?:[\s\S]*?\sfrom\s+)?'@modelcontextprotocol\/sdk/m,
+    'the SDK must not be a static import',
+  )
+  // 但仍然要真的 import，只是走受保护的动态形式。
+  assert.match(dcliToolsSource, /await import\('@modelcontextprotocol\/sdk\/client\/index\.js'\)/)
+  assert.match(dcliToolsSource, /await import\('@modelcontextprotocol\/sdk\/client\/stdio\.js'\)/)
+  // 解析失败必须落回 undefined，而不是让模块加载失败。
+  assert.match(dcliToolsSource, /Client = undefined/)
+  assert.match(dcliToolsSource, /StdioClientTransport = undefined/)
+  // 回归守卫：相邻的两条 `({ X } = await import(...))` 会被 ASI 拼成调用表达式
+  // （运行期 “{(intermediate value)} is not a function”），因此不得再出现该写法。
+  assert.doesNotMatch(dcliToolsSource, /^\s*\(\{ (?:Client|StdioClientTransport) \} = /m)
+})
+
+test('requireMcpSdk returns the injected constructors when the peer is available', () => {
+  class FakeClient {}
+  class FakeStdioTransport {}
+  const sdk = requireMcpSdk({ Client: FakeClient, StdioClientTransport: FakeStdioTransport })
+  assert.equal(sdk.Client, FakeClient)
+  assert.equal(sdk.StdioClientTransport, FakeStdioTransport)
+})
+
+test('requireMcpSdk fails with an actionable message instead of a TypeError', () => {
+  const check = (err) => {
+    assert.ok(err instanceof Error)
+    assert.equal(err.message, mcpSdkMissingMessage(), 'the call-site error is the exported message')
+    assert.match(err.message, /@modelcontextprotocol\/sdk/, 'names the missing optional peer')
+    assert.match(err.message, /可选 peer 依赖/, 'says it is an optional peer dependency')
+    assert.match(err.message, /npm install @modelcontextprotocol\/sdk/, 'gives the install command')
+    assert.match(err.message, /dsh plugin --profile <profile> add @modelcontextprotocol\/sdk/)
+    // 旧失败模式（`Client is not a constructor` / `... is not a function`）不得回归。
+    assert.doesNotMatch(err.message, /is not a constructor|is not a function/)
+    return true
+  }
+  assert.throws(() => requireMcpSdk({ Client: undefined, StdioClientTransport: undefined }), check)
+  // 只能拿到一半也不算可用：不能出现半初始化状态。
+  assert.throws(() => requireMcpSdk({ StdioClientTransport: undefined }), check)
+  assert.throws(() => requireMcpSdk({ Client: undefined }), check)
+})
+
+test('when the SDK is resolvable from this package, the guarded import binds both constructors', () => {
+  // 该 peer 是可选依赖：干净安装（npm 不自动安装 optional peer）下缺包是合法状态，
+  // 因此这里只在能解析时校验真实绑定，否则只校验错误路径可操作。
+  let resolved
+  try {
+    resolved = requireMcpSdk()
+  } catch (err) {
+    assert.match(err.message, /@modelcontextprotocol\/sdk/)
+    return
+  }
+  assert.equal(typeof resolved.Client, 'function')
+  assert.equal(typeof resolved.StdioClientTransport, 'function')
 })

@@ -22,16 +22,55 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { spawnSync as cpSpawnSync } from 'node:child_process'
-// 依赖解析：@deepseek-ai/dsh-tools 由 DSH 宿主提供（可选 peerDependency），
-// @modelcontextprotocol/sdk 随包安装；分发无需硬编码 npx 路径。
-import { defineTool } from '@deepseek-ai/dsh-tools'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+// 依赖解析：两个包都**不随本包私有安装**，均由宿主 profile 提供，分发无需硬编码 npx 路径。
+// @deepseek-ai/dsh-tools 是 DSH 宿主共享包（可选 peerDependency），静态 import 即可——
+// ./tools 只会在宿主提供它时被挂载。
 // 统一环境解析（cli / Studio / hdc / hvigor / json5 / 工程根）。
 // cliPath 缺失不阻止本插件挂载：具体工具在真正执行时动态解析，报可操作错误。
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import { resolveEnv, cliMissingError, studioMissingError, WINDOWS_ONLY } from './environment.js'
 import { validateBundleName, validateSafeName } from './validate.js'
 import { configureDualSigning } from './dual-signing.js'
+
+// @modelcontextprotocol/sdk 也是可选 peerDependency（同一个范围，只是从 dependencies 移过来）：
+// 由宿主 profile 提升安装，Node 从本包目录向上查找即可解析。只有 LSP 工具
+// （dcli__lsp_check / dcli__lsp_restart）用到它，因此**绝不能静态 import**：该包缺失时静态
+// import 在模块图解析期就抛 ERR_MODULE_NOT_FOUND，把整个 ./tools 连同静态引用它的
+// lib/index.js 一起打挂。改为受保护的动态 import：解析失败只让构造函数保持 undefined，
+// 真正调用 LSP 工具时再由 requireMcpSdk() 报可操作的安装提示。
+let Client
+let StdioClientTransport
+try {
+  // 两行各自独立取值，绝不写成相邻的 `({ X } = ...)` 语句——它们会被 ASI 拼成
+  // `({...} = ns)({...} = ns)` 的调用表达式，运行期报 “{(intermediate value)} is not a function”。
+  const clientModule = await import('@modelcontextprotocol/sdk/client/index.js')
+  const stdioModule = await import('@modelcontextprotocol/sdk/client/stdio.js')
+  Client = clientModule.Client
+  StdioClientTransport = stdioModule.StdioClientTransport
+} catch {
+  // 未安装或无法解析：不是模块加载错误，保持 undefined，交给 requireMcpSdk() 在调用点报错。
+  // 任一模块解析失败都回到全 undefined，避免半可用状态。
+  Client = undefined
+  StdioClientTransport = undefined
+}
+
+export function mcpSdkMissingMessage() {
+  return '@modelcontextprotocol/sdk 未安装或无法解析：dcli__lsp_check / dcli__lsp_restart 需要这个'
+    + '可选 peer 依赖（本包不再把 SDK 装进 dependencies，改由 DSH profile 提供）。'
+    + '请在 DSH profile 目录安装后重启 DSH：npm install @modelcontextprotocol/sdk'
+    + '（或用官方命令 dsh plugin --profile <profile> add @modelcontextprotocol/sdk）。'
+}
+
+// LSP 工具入口所需的两个构造函数。deps 可注入（测试用）；缺任意一个即抛可操作错误，
+// 而不是让 `new Client(...)` 抛 TypeError / is not a constructor。
+export function requireMcpSdk(deps = {}) {
+  const clientCtor = 'Client' in deps ? deps.Client : Client
+  const transportCtor = 'StdioClientTransport' in deps ? deps.StdioClientTransport : StdioClientTransport
+  if (typeof clientCtor !== 'function' || typeof transportCtor !== 'function') {
+    throw new Error(mcpSdkMissingMessage())
+  }
+  return { Client: clientCtor, StdioClientTransport: transportCtor }
+}
 
 export const name = 'dcli-tools'
 export const inject = ['tools', 'subprocess']
@@ -1151,17 +1190,19 @@ export function applyForPlatform(ctx, config, platform) {
     if (existing && !existing.closed) return existing
     const e = env()
     if (!e.cliOk) throw new Error(cliMissingError(e, 'LSP 检查需要 deveco-cli'))
+    // 可选 peer 依赖缺失时在此失败：报缺失包与安装命令，而不是 `Client is not a constructor`。
+    const { Client: McpClient, StdioClientTransport: McpStdioTransport } = requireMcpSdk()
     const inst = { closed: false, client: null, transport: null }
     // 不手工复制 process.env：SDK 的 StdioClientTransport 会用白名单默认环境合并我们
     // 注入的覆盖项（PROJECT_PATH/DEVECO_CLI_SKIP_VERSION_CHECK），避免整份拷贝。
-    const transport = new StdioClientTransport({
+    const transport = new McpStdioTransport({
       command: process.execPath,
       args: [e.CLI, 'serve', 'mcp'],
       cwd: projectPath,
       env: { PROJECT_PATH: projectPath, DEVECO_CLI_SKIP_VERSION_CHECK: '1' },
       stderr: 'pipe',
     })
-    const client = new Client({ name: 'dcli-tools', version: '1' }, { capabilities: {} })
+    const client = new McpClient({ name: 'dcli-tools', version: '1' }, { capabilities: {} })
     transport.onerror = (e) => { inst.closed = true }
     try {
       await client.connect(transport)

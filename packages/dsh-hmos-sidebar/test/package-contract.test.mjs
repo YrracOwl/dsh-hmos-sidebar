@@ -147,6 +147,40 @@ test('peer range rejects versions below the floor and the next major', () => {
   }
 })
 
+// ---------------------------------------------------------------------------
+// Optional peer: @modelcontextprotocol/sdk
+// Needed only by the ./tools entry (LSP tools) and resolved from the host
+// profile. It must NEVER be a hard dependency: pnpm then materializes its own
+// isolated store inside the package, and DSH's package-closure walk dies with
+// EPERM realpath over that nested .pnpm tree on Windows before boot.
+// ---------------------------------------------------------------------------
+
+const mcpPeerRange = pkg.peerDependencies['@modelcontextprotocol/sdk']
+
+test('optional peer @modelcontextprotocol/sdk keeps its range and stays optional', () => {
+  assert.equal(mcpPeerRange, '^1.12.0')
+  assert.equal(pkg.peerDependenciesMeta['@modelcontextprotocol/sdk'].optional, true)
+})
+
+test('@modelcontextprotocol/sdk is never a hard dependency and schemastery still is', () => {
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(pkg.dependencies ?? {}, '@modelcontextprotocol/sdk'),
+    false,
+    'a private copy makes pnpm nest an isolated store DSH cannot realpath',
+  )
+  // @deepseek-ai/schemastery stays exactly where it was: the one runtime dependency.
+  assert.equal(pkg.dependencies['@deepseek-ai/schemastery'], '^3.18.1')
+})
+
+test('SDK peer range is satisfied by the host-hoisted 1.x copy and rejects the next major', () => {
+  for (const v of ['1.12.0', '1.30.0', '1.30.1', '1.99.9']) {
+    assert.equal(satisfiesRange(v, mcpPeerRange), true, v + ' must satisfy')
+  }
+  for (const v of ['1.11.9', '2.0.0']) {
+    assert.equal(satisfiesRange(v, mcpPeerRange), false, v + ' must not satisfy')
+  }
+})
+
 test('Windows-only, exports, and tools-separation contracts unchanged', () => {
   assert.deepEqual(pkg.os, ['win32'])
   assert.equal(pkg.main, 'lib/index.js')
