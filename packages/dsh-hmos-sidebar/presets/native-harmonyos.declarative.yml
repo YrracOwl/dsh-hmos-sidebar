@@ -195,15 +195,11 @@
           - id: command-compact
             name: '@deepseek-ai/dsh-command-compact'
 
-          # NOTE: 4196 is what the ≤ 0.1.5 twin carries; upstream rc.1 presets
-          # and the Liangshen twin use 4096. Kept verbatim here so this rewrite
-          # stays behaviour-preserving — aligning it is a separate change that
-          # must touch both payloads at once.
           - id: tool-result-pruner
             name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
             config:
               thresholdChars: 8192
-              headChars: 4196
+              headChars: 4096
               tailChars: 1024
 
       # ── delegation and workflows ──────────────────────────────────────────
