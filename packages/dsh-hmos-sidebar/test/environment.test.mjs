@@ -7,12 +7,54 @@ import {
   resolveEnv,
   cliMissingError,
   studioMissingError,
+  cliCandidates,
+  cliEntryFromManifest,
+  cliPackageRootFromEntry,
+  json5Candidates,
   WINDOWS_ONLY,
   DEFAULT_PROJECT_ROOTS,
 } from '../lib/environment.js'
 
 function tmpRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-hmos-env-'))
+}
+
+// 会影响 CLI 自动探测的环境变量：夹具里全部清空，只留下一个临时 npm 全局根，
+// 保证这些断言与本机真实安装无关。
+const CLI_ENV_KEYS = [
+  'DEVECO_CLI_PATH', 'DEVECO_HOME', 'DEVECO_SDK_HOME', 'PROJECT_PATH',
+  'APPDATA', 'USERPROFILE', 'LOCALAPPDATA', 'PROGRAMFILES',
+]
+
+// 机器无关夹具：临时目录当作 %APPDATA%（npm 全局根 = <root>/npm）。
+function withFakeNpmRoot(fn) {
+  const root = tmpRoot()
+  const saved = {}
+  for (const k of CLI_ENV_KEYS) { saved[k] = process.env[k]; delete process.env[k] }
+  process.env.APPDATA = root
+  try {
+    return fn(root)
+  } finally {
+    for (const k of CLI_ENV_KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k] }
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+}
+
+// 在临时 npm 全局根里造一个 deveco-cli 包目录，manifest 内容由调用方决定。
+function fakeCliPkgDir(root) {
+  return path.join(root, 'npm', 'node_modules', '@deveco', 'deveco-cli')
+}
+
+function writeFakeCliPackage(pkgDir, manifest, entries) {
+  fs.mkdirSync(pkgDir, { recursive: true })
+  if (manifest !== undefined) {
+    fs.writeFileSync(path.join(pkgDir, 'package.json'), typeof manifest === 'string' ? manifest : JSON.stringify(manifest))
+  }
+  for (const rel of entries) {
+    const target = path.join(pkgDir, rel)
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.writeFileSync(target, '#!/usr/bin/env node\n')
+  }
 }
 
 test('is Windows-only module contract', () => {
@@ -180,3 +222,144 @@ test('resolveEnv reports projectSource config / env:PROJECT_PATH / cwd', () => {
     else process.env.PROJECT_PATH = prev
   }
 })
+
+// ---------------------------------------------------------------------------
+// CLI 入口布局无关性（@deveco/deveco-cli 1.3.4 起入口从 dist/cli.js 变成 cli.js）
+//
+// 入口不再写死，而是读安装包自己的 package.json#bin；旧布局只作兜底候选。
+// 以下夹具全部在临时 npm 全局根里构造，不触碰本机真实安装。
+// ---------------------------------------------------------------------------
+
+test('cliCandidates resolves the ≥1.3.4 entry (bin: cli.js) from the installed manifest', () => {
+  withFakeNpmRoot((root) => {
+    const pkgDir = fakeCliPkgDir(root)
+    writeFakeCliPackage(pkgDir, { name: '@deveco/deveco-cli', version: '1.3.4', bin: { devecocli: 'cli.js' } }, ['cli.js'])
+    const json5Dir = path.join(pkgDir, 'node_modules', 'json5')
+    fs.mkdirSync(json5Dir, { recursive: true })
+    fs.writeFileSync(path.join(json5Dir, 'package.json'), '{}')
+
+    const candidates = cliCandidates()
+    assert.equal(candidates[0], path.join(pkgDir, 'cli.js'), 'manifest 解析的入口必须排在第一位')
+    assert.ok(candidates.includes(path.join(pkgDir, 'dist', 'cli.js')), '旧布局候选仍保留作兜底')
+
+    const e = resolveEnv({ projectPath: os.tmpdir() })
+    assert.equal(e.cliSource, 'detected')
+    assert.equal(e.cliOk, true)
+    assert.equal(e.CLI, path.join(pkgDir, 'cli.js'))
+    // json5：从 cli.js 向上定位包根，命中包内 node_modules/json5
+    assert.equal(json5Candidates(path.join(pkgDir, 'cli.js'))[0], json5Dir)
+    assert.equal(e.JSON5_DIR, json5Dir)
+    assert.equal(e.json5Ok, true)
+  })
+})
+
+test('cliCandidates still resolves the legacy ≤1.3.3 dist/cli.js layout without duplicates', () => {
+  withFakeNpmRoot((root) => {
+    const pkgDir = fakeCliPkgDir(root)
+    writeFakeCliPackage(pkgDir, { name: '@deveco/deveco-cli', version: '1.3.3', bin: { devecocli: 'dist/cli.js' } }, [path.join('dist', 'cli.js')])
+    const json5Dir = path.join(pkgDir, 'node_modules', 'json5')
+    fs.mkdirSync(json5Dir, { recursive: true })
+    fs.writeFileSync(path.join(json5Dir, 'package.json'), '{}')
+
+    const legacyEntry = path.join(pkgDir, 'dist', 'cli.js')
+    const candidates = cliCandidates()
+    assert.equal(candidates[0], legacyEntry)
+    assert.equal(candidates.filter((p) => p === legacyEntry).length, 1, 'manifest 与兜底候选重合时必须去重')
+
+    const e = resolveEnv({ projectPath: os.tmpdir() })
+    assert.equal(e.cliSource, 'detected')
+    assert.equal(e.CLI, legacyEntry)
+    // json5：dist/cli.js 需向上两层才到包根
+    assert.equal(json5Candidates(legacyEntry)[0], json5Dir)
+    assert.equal(e.JSON5_DIR, json5Dir)
+  })
+})
+
+test('cliCandidates falls back to the legacy candidate when the manifest is absent or unreadable (no throw)', () => {
+  withFakeNpmRoot((root) => {
+    const pkgDir = fakeCliPkgDir(root)
+    // 只有旧布局文件，没有 package.json
+    writeFakeCliPackage(pkgDir, undefined, [path.join('dist', 'cli.js')])
+    const legacyEntry = path.join(pkgDir, 'dist', 'cli.js')
+    assert.deepEqual(cliCandidates(), [legacyEntry])
+
+    // manifest 存在但不是合法 JSON：同样安静回退，绝不抛
+    fs.writeFileSync(path.join(pkgDir, 'package.json'), '{ not json')
+    assert.deepEqual(cliCandidates(), [legacyEntry])
+
+    // manifest 合法但没有 bin：仍然回退到兜底候选
+    fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ name: '@deveco/deveco-cli' }))
+    assert.deepEqual(cliCandidates(), [legacyEntry])
+
+    const e = resolveEnv({ projectPath: os.tmpdir() })
+    assert.equal(e.cliSource, 'detected')
+    assert.equal(e.cliOk, true)
+    assert.equal(e.CLI, legacyEntry)
+  })
+})
+
+test('cliEntryFromManifest handles string/object bin forms and never throws on bad input', () => {
+  const root = tmpRoot()
+  try {
+    const pkgDir = path.join(root, 'pkg')
+    fs.mkdirSync(pkgDir, { recursive: true })
+    const write = (value) => fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify(value))
+
+    write({ name: '@deveco/deveco-cli', bin: 'cli.js' }) // 字符串形式
+    assert.equal(cliEntryFromManifest(pkgDir), path.join(pkgDir, 'cli.js'))
+
+    write({ name: '@deveco/deveco-cli', bin: { devecocli: 'bin\\cli.js' } }) // 反斜杠相对路径
+    assert.equal(cliEntryFromManifest(pkgDir), path.join(pkgDir, 'bin', 'cli.js'))
+
+    write({ name: '@deveco/deveco-cli', bin: { 'deveco-cli': './cli.js' } }) // 包名键 + ./ 前缀
+    assert.equal(cliEntryFromManifest(pkgDir), path.join(pkgDir, 'cli.js'))
+
+    write({ name: '@deveco/deveco-cli', bin: { somethingElse: 'main.js' } }) // 唯一值
+    assert.equal(cliEntryFromManifest(pkgDir), path.join(pkgDir, 'main.js'))
+
+    write({ name: '@deveco/deveco-cli' }) // 没有 bin
+    assert.equal(cliEntryFromManifest(pkgDir), '')
+
+    fs.writeFileSync(path.join(pkgDir, 'package.json'), 'not json at all')
+    assert.equal(cliEntryFromManifest(pkgDir), '')
+
+    fs.rmSync(path.join(pkgDir, 'package.json'))
+    assert.equal(cliEntryFromManifest(pkgDir), '')
+    assert.equal(cliEntryFromManifest(path.join(root, 'does-not-exist')), '')
+    assert.equal(cliEntryFromManifest(''), '')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('cliPackageRootFromEntry walks up to the CLI package root for both layouts', () => {
+  const root = tmpRoot()
+  try {
+    const pkgDir = path.join(root, 'node_modules', '@deveco', 'deveco-cli')
+    fs.mkdirSync(path.join(pkgDir, 'dist'), { recursive: true })
+    fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ name: '@deveco/deveco-cli' }))
+
+    assert.equal(cliPackageRootFromEntry(path.join(pkgDir, 'cli.js')), pkgDir)
+    assert.equal(cliPackageRootFromEntry(path.join(pkgDir, 'dist', 'cli.js')), pkgDir)
+    // 不是 deveco-cli 的祖先目录不会被误认
+    fs.mkdirSync(path.join(root, 'other'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'other', 'package.json'), JSON.stringify({ name: 'some-other-pkg' }))
+    assert.equal(cliPackageRootFromEntry(path.join(root, 'other', 'cli.js')), '')
+    assert.equal(cliPackageRootFromEntry(''), '')
+
+    // 找不到包根时 json5Candidates 仍能退回旧形状 + npm 全局根候选，不抛异常
+    assert.ok(json5Candidates(path.join(root, 'other', 'cli.js')).length > 0)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('cliMissingError names the manifest-based discovery, the global install and both overrides', () => {
+  const msg = cliMissingError({})
+  assert.match(msg, /未找到 deveco-cli 入口/)
+  assert.match(msg, /npm install -g @deveco\/deveco-cli/)
+  assert.match(msg, /DEVECO_CLI_PATH/)
+  assert.match(msg, /cliPath/)
+  assert.doesNotMatch(msg, /dist[\\/]cli\.js/, '不得再把旧布局写成唯一入口路径')
+})
+

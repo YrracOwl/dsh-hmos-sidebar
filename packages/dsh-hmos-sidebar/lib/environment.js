@@ -13,19 +13,41 @@
 //     位置，不含任何个人绝对路径；PROJECT_ROOTS 默认留空、由 config.projectRoots 提供。
 //   - 不手工复制 process.env：环境变量仅作为解析输入读取，子进程 env 由 DSH subprocess
 //     清理合并，这里不做整份拷贝。
+//
+// CLI 入口布局不固定（实测）：
+//   @deveco/deveco-cli ≥ 1.3.4  package.json#bin = { "devecocli": "cli.js" }
+//                               → <root>\node_modules\@deveco\deveco-cli\cli.js
+//   @deveco/deveco-cli ≤ 1.3.3  → <root>\node_modules\@deveco\deveco-cli\dist\cli.js
+// 所以入口**不写死 dist/cli.js**：先读安装包自己的 package.json#bin 解析真实入口，
+// 旧布局仅作为兜底候选。manifest 读不到时安静回退（本模块在宿主启动期与每次工具
+// 调用中都会执行，任何一步都不得抛异常）。
 
 import path from 'node:path'
 import fs from 'node:fs'
 
 export const WINDOWS_ONLY = true
 
+const DEVECO_CLI_PKG = '@deveco/deveco-cli'
+// 官方命令名 = bin 对象的首选键（1.3.4 实测：{ "devecocli": "cli.js" }）
+const DEVECO_CLI_BIN = 'devecocli'
+
 function fsExists(p) {
   try { return fs.existsSync(p) } catch { return false }
 }
 
+// 读一个 JSON 文件；不存在 / 非法 JSON / 权限不足一律返回 null，绝不抛。
+function readJsonSafe(p) {
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')) } catch { return null }
+}
+
+// 归一化 bin 的相对路径：兼容 `\` 与 `/`，丢弃 `.` 与空段。
+function entrySegments(rel) {
+  return String(rel).replace(/\\/g, '/').split('/').filter((s) => s && s !== '.')
+}
+
 // ---- 常见安装位置候选（Windows-only，不含个人路径） ----
-// deveco-cli 全局 npm 安装根（每个根含 node_modules/@deveco/deveco-cli/dist/cli.js）。
-// %APPDATA%\npm（npm 全局根）→ cliPath = %APPDATA%\npm\node_modules\@deveco\deveco-cli\dist\cli.js
+// deveco-cli 全局 npm 安装根（每个根含 node_modules/@deveco/deveco-cli）。
+// %APPDATA%\npm（npm 全局根）→ 入口由该包自身的 package.json#bin 决定，见 cliCandidates()。
 export function npmGlobalRoots() {
   const out = []
   const seen = new Set()
@@ -37,10 +59,40 @@ export function npmGlobalRoots() {
   return out
 }
 
+// 从安装包自己的 manifest 解析真实入口（布局无关）：
+//   bin 字符串形式 → 直接使用；
+//   bin 对象形式   → 优先取键名等于官方命令名 / 包目录名的那一项，
+//                    否则取唯一一项（多项且都不匹配时取第一项，反正下游按存在性过滤）。
+// manifest 不可读、没有 bin、bin 内无字符串值时返回 ''，由调用方回退旧布局候选。
+export function cliEntryFromManifest(pkgDir) {
+  if (!pkgDir) return ''
+  const manifest = readJsonSafe(path.join(pkgDir, 'package.json'))
+  if (!manifest || typeof manifest !== 'object') return ''
+  const bin = manifest.bin
+  let rel = ''
+  if (typeof bin === 'string') {
+    rel = bin
+  } else if (bin && typeof bin === 'object' && !Array.isArray(bin)) {
+    const entries = Object.entries(bin).filter(([, value]) => typeof value === 'string')
+    const matched = entries.find(([key]) => key === DEVECO_CLI_BIN || key === path.basename(pkgDir))
+    if (matched) rel = matched[1]
+    else if (entries.length) rel = entries[0][1]
+  }
+  const parts = entrySegments(rel)
+  if (!parts.length) return ''
+  return path.join(pkgDir, ...parts)
+}
+
+// deveco-cli 入口候选：每个 npm 全局根先给出**由安装包 manifest 解析**的入口，
+// 再补旧布局 dist/cli.js 兜底；去重并保持顺序。任何异常都退化成候选不完整。
 export function cliCandidates() {
   const out = []
+  const seen = new Set()
+  const push = (p) => { if (p && !seen.has(p)) { seen.add(p); out.push(p) } }
   for (const root of npmGlobalRoots()) {
-    out.push(path.join(root, 'node_modules', '@deveco', 'deveco-cli', 'dist', 'cli.js'))
+    const pkgDir = path.join(root, 'node_modules', '@deveco', 'deveco-cli')
+    push(cliEntryFromManifest(pkgDir))
+    push(path.join(pkgDir, 'dist', 'cli.js')) // ≤ 1.3.3 旧布局
   }
   return out
 }
@@ -55,17 +107,40 @@ export const DEVECO_HOME_CANDIDATES = [
 // 工程自动发现根目录：默认不硬编码任何个人目录，由 config.projectRoots 提供。
 export const DEFAULT_PROJECT_ROOTS = []
 
-// json5 随 deveco-cli 安装：cliPath 是 <npm>/node_modules/@deveco/deveco-cli/dist/cli.js，
-// json5 在 deveco-cli 的 node_modules 或其上层 @deveco / npm 全局根。
-export function json5Candidates(cliPath) {
-  const cliPkgRoot = cliPath ? path.dirname(path.dirname(cliPath)) : '' // .../deveco-cli
-  const out = []
-  if (cliPkgRoot) {
-    out.push(path.join(cliPkgRoot, 'node_modules', 'json5'))
-    out.push(path.join(path.dirname(cliPkgRoot), 'node_modules', 'json5')) // @deveco/node_modules
+// 从已解析的 CLI 入口向上找**最近的**祖先目录，其 package.json#name 是
+// @deveco/deveco-cli —— 那就是 CLI 包根。两种布局都成立：
+//   <pkg>\cli.js（≥ 1.3.4）与 <pkg>\dist\cli.js（≤ 1.3.3）。
+// 找不到（manifest 不可读 / 自定义路径）时返回 ''，调用方退回旧形状推导。
+export function cliPackageRootFromEntry(cliPath) {
+  if (!cliPath) return ''
+  let dir = path.dirname(path.resolve(String(cliPath)))
+  for (let depth = 0; depth < 8; depth++) {
+    const manifest = readJsonSafe(path.join(dir, 'package.json'))
+    if (manifest && manifest.name === DEVECO_CLI_PKG) return dir
+    const parent = path.dirname(dir)
+    if (!parent || parent === dir) break
+    dir = parent
   }
+  return ''
+}
+
+// json5 随 deveco-cli 安装：包根由入口向上定位（布局无关），json5 在
+// deveco-cli 自己的 node_modules 或其上层 @deveco / npm 全局根。
+export function json5Candidates(cliPath) {
+  const out = []
+  const seen = new Set()
+  const push = (p) => { if (p && !seen.has(p)) { seen.add(p); out.push(p) } }
+  // 1) 布局无关：入口向上定位 CLI 包根（<pkg>\cli.js 与 <pkg>\dist\cli.js 都成立）
+  let cliPkgRoot = cliPackageRootFromEntry(cliPath)
+  // 2) 兜底：manifest 读不到时按旧形状推导（入口在 dist/ 下时 dirname(dirname()) 即包根）
+  if (!cliPkgRoot && cliPath) cliPkgRoot = path.dirname(path.dirname(path.resolve(String(cliPath))))
+  if (cliPkgRoot) {
+    push(path.join(cliPkgRoot, 'node_modules', 'json5'))
+    push(path.join(path.dirname(cliPkgRoot), 'node_modules', 'json5')) // @deveco/node_modules
+  }
+  // 3) npm 全局根下的 json5（原有兜底）
   for (const root of npmGlobalRoots()) {
-    out.push(path.join(root, 'node_modules', 'json5'))
+    push(path.join(root, 'node_modules', 'json5'))
   }
   return out
 }
@@ -184,7 +259,7 @@ export function resolveEnv(config = {}, overrides = {}) {
 // 可操作错误（缺 CLI 时给修复提示）：具体调用方在真正执行时报出，而非挂在挂载阶段。
 export function cliMissingError(env, hint = '') {
   return '未找到 deveco-cli 入口' +
-    (hint || '。请先 npm install -g @deveco/deveco-cli，或设置环境变量 DEVECO_CLI_PATH / config.cliPath，安装后无需重启 DSH 即可识别。')
+    (hint || '。请先 npm install -g @deveco/deveco-cli（插件从安装包自身的 package.json#bin 解析入口，新旧布局都支持），或设置环境变量 DEVECO_CLI_PATH / 入口配置 cliPath，安装后无需重启 DSH 即可识别。')
 }
 
 export function studioMissingError(env, hint = '') {

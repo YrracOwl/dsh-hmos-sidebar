@@ -408,6 +408,18 @@ test('host half declares a capability-detected volatile Config for the newer set
     'never call .volatile() unconditionally: the 0.1.5 schemastery has no such method',
   )
 
+  // The optional `cliPath` override lives in the entry Config so a row config /
+  // profile-patch `config.cliPath` (and the preset's `./tools` row config) passes
+  // schema validation on both corridors without an environment variable. It is
+  // deliberately NOT part of the settings CARD UI — the card renders only the two
+  // boolean switches — but it must still be declared here or the host rejects the
+  // whole section (`Config field "cliPath" is not volatile`).
+  assert.match(
+    source,
+    /cliPath: volatileField\(Schema\.string\(\)/,
+    'the entry Config must declare an optional volatile cliPath override',
+  )
+
   // The optional settings transport must never become a hard inject gate.
   assert.match(source, /^export const inject = \['webServer', 'subprocess'\]$/m)
   assert.doesNotMatch(source, /export const inject = \[[^\]]*'settings'/)
@@ -437,4 +449,15 @@ test('the host Config loads and resolves on the installed schemastery line', asy
     { popup: { keepCollapsed: read(value.popup.keepCollapsed) }, ball: { hideWithoutProject: read(value.ball.hideWithoutProject) } },
     { popup: { keepCollapsed: true }, ball: { hideWithoutProject: true } },
   )
+
+  // The optional cliPath override resolves on BOTH schemastery lines: a plain
+  // string where `volatile()` is absent (≤ 0.1.5 install), and a cosmokit
+  // volatile wrapper on the 0.1.7 corridor, which `read` unwraps.
+  assert.equal(read(value.cliPath), undefined, 'cliPath is optional and omitted by default')
+  assert.equal(
+    read(host.Config({ cliPath: 'C:\\npm\\cli.js' }).cliPath),
+    'C:\\npm\\cli.js',
+    'a row/patch config.cliPath must survive entry-Config validation',
+  )
+  assert.throws(() => host.Config({ cliPath: 123 }), /cliPath expected string/i)
 })

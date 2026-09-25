@@ -98,11 +98,11 @@ pnpm exec dsh-hmos-sidebar install-presets --all
 
 ## 配置
 
-`lib/environment.js` 统一解析 cli / DevEco Studio / hdc / hvigor / json5 / 工程根，优先级 **config → 环境变量 → 常见安装位置探测**，**每次调用实时解析**（不缓存，安装/变更路径后无需重启）。全部字段可省略。
+`lib/environment.js` 统一解析 cli / DevEco Studio / hdc / hvigor / json5 / 工程根，优先级 **config → 环境变量 → 常见安装位置探测**，**每次调用实时解析**（不缓存，安装/变更路径后无需重启）。全部字段可省略。CLI 入口**不写死路径**：在每个 npm 全局根下读 `@deveco/deveco-cli` 自身的 `package.json#bin` 得到真实入口，因此 `deveco-cli` 的新旧布局（≥ 1.3.4 的 `cli.js`、≤ 1.3.3 的 `dist/cli.js`）都能识别；manifest 不可读时安静回退到旧布局候选，不报错。
 
 | 字段 | 说明 | 缺省行为（探测源） |
 | --- | --- | --- |
-| `cliPath` | deveco-cli 入口（dist/cli.js） | 环境变量 `DEVECO_CLI_PATH` → `%APPDATA%\npm\node_modules\@deveco\deveco-cli\dist\cli.js` 等常见位置 |
+| `cliPath` | deveco-cli 入口文件（可省略） | 环境变量 `DEVECO_CLI_PATH` → 各 npm 全局根（`%APPDATA%\npm` 等）下 `@deveco/deveco-cli` 的 `package.json#bin` 指向的真实入口 |
 | `projectPath` | Host 默认鸿蒙工程根 | 环境变量 `PROJECT_PATH` → Host 进程 cwd；Web 浮窗会优先传当前 GUI session 的 cwd |
 | `devEcoHome` | DevEco Studio 安装目录 | `DEVECO_HOME` → `DEVECO_SDK_HOME` 父目录 → 常见安装路径（`C:\Program Files\Huawei\DevEco Studio` 等） |
 | `projectRoots` | 当前工作区以外的附加工程发现根目录列表 | 默认**空**；Web 浮窗仍会有界递归扫描当前 GUI session 的 cwd |

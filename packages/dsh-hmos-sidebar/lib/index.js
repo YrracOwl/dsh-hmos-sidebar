@@ -80,9 +80,15 @@ function volatileField(schema) {
 //     也就拿不到表。
 // 字段名与嵌套必须与 createSettingsSchema() 完全一致：客户端按
 // popup.keepCollapsed / ball.hideWithoutProject 读取，两代宿主共用同一份读法。
-// （volatile 只能落在「固定对象路径」上，且不能 volatile 套 volatile——这里两个
+// （volatile 只能落在「固定对象路径」上，且不能 volatile 套 volatile——这里三个
 // 叶子各自 volatile，外层对象不标记。）
+// 另有一个可选的 `cliPath`（deveco-cli 入口文件覆盖）：它让 profile/patch 的入口
+// config 覆盖与 preset 里 ./tools 行的 config.cliPath 在 0.1.7 线上通过 schema 校验，
+// 无需环境变量。缺省省略即自动探测（布局无关，见 lib/environment.js）。它**故意
+// 不进入插件的设置卡片 UI**（卡片只渲染下面两个布尔开关）。
 export const Config = Schema.object({
+  cliPath: volatileField(Schema.string()
+    .description('deveco-cli 入口文件路径（可省略；缺省时自动探测全局安装，兼容 cli.js 与 dist/cli.js 两种布局）')),
   popup: Schema.object({
     keepCollapsed: volatileField(Schema.boolean().default(DEFAULT_SETTINGS.popup.keepCollapsed)),
   }).default(cloneSettings(DEFAULT_SETTINGS.popup)),
@@ -94,6 +100,9 @@ export const Config = Schema.object({
 
 function validateSettings(value) {
   if (!isPlainObject(value)) throw new Error('settings must be a JSON object')
+  if (value.cliPath !== undefined && typeof value.cliPath !== 'string') {
+    throw new Error('cliPath must be a string')
+  }
   if (!isPlainObject(value.popup) || typeof value.popup.keepCollapsed !== 'boolean') {
     throw new Error('popup.keepCollapsed must be a boolean')
   }

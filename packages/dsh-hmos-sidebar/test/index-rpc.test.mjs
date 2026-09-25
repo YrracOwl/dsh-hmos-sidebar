@@ -102,6 +102,14 @@ test('apply registers the hmos-sidebar settings namespace on the settings servic
   reg.options.validate({ popup: { keepCollapsed: false }, ball: { hideWithoutProject: true } })
   assert.throws(() => reg.options.validate({}))
   assert.throws(() => reg.options.validate({ popup: { keepCollapsed: 'yes' }, ball: { hideWithoutProject: true } }))
+  // 可选的 cliPath（入口 Config 里声明的布局无关覆盖）：省略或字符串合法，非字符串拒绝，
+  // 与 validateSettings 对 Config 声明的判断保持一致。
+  reg.options.validate({ popup: { keepCollapsed: true }, ball: { hideWithoutProject: true } })
+  reg.options.validate({ cliPath: 'C:\\npm\\node_modules\\@deveco\\deveco-cli\\cli.js', popup: { keepCollapsed: true }, ball: { hideWithoutProject: true } })
+  assert.throws(
+    () => reg.options.validate({ cliPath: 123, popup: { keepCollapsed: true }, ball: { hideWithoutProject: true } }),
+    /cliPath/,
+  )
 })
 
 // ---- 路径围栏（withinTrusted / validateInstallHap / validateHapInfo + 可信根） ----
