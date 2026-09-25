@@ -346,11 +346,17 @@ test('Liangshen preset modules are reachable as package subpaths', () => {
 // ---------------------------------------------------------------------------
 
 test('host half declares a capability-detected volatile Config for the newer settings host', () => {
-  const source = fs.readFileSync(path.join(packageRoot, 'lib', 'index.js'), 'utf8')
+  // Normalize to LF: this package's CI runs on windows-latest, where the checkout is CRLF,
+  // and every `^…$`/`m` assertion below silently changes meaning on CRLF (run 36130050135
+  // failed on exactly that after passing locally on an LF working tree).
+  const source = fs.readFileSync(path.join(packageRoot, 'lib', 'index.js'), 'utf8').replace(/\r\n/g, '\n')
 
   // The namespace on 0.1.7+ is the entry Config, keyed by this row's id.
+  // Line-ending agnostic on purpose: this package's CI runs on windows-latest, where the
+  // checkout is CRLF, so a hard-coded `\n` here silently matches nothing there (it did:
+  // run 36130050135 failed on exactly this, after passing locally on an LF working tree).
   assert.equal(
-    /- id: ([\w-]+)\n\s+name: 'dsh-hmos-sidebar'/.exec(
+    /- id: ([\w-]+)\r?\n\s+name: 'dsh-hmos-sidebar'/.exec(
       fs.readFileSync(path.join(packageRoot, 'cordis.patch.yml'), 'utf8'),
     )?.[1],
     'dsh-hmos-sidebar',
