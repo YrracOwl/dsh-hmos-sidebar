@@ -31,7 +31,9 @@ export const inject = ['webServer', 'subprocess']
 // 两个布尔开关（默认均为 true，安静模式）：
 //   popup.keepCollapsed      默认不展开弹窗：检测到鸿蒙工程也不自动展开工作台面板；
 //                            关闭后，当前工作区探测到鸿蒙工程时客户端自动展开一次。
-//   ball.hideWithoutProject  在非鸿蒙工作区默认不展示悬浮球；关闭后悬浮球始终显示。
+//   ball.hideWithoutProject  在非鸿蒙工作区默认把悬浮球降级为「待命」外观（变暗 + 略微
+//                            缩小，悬停/聚焦恢复全强度）；它**永不隐藏**悬浮球——悬浮球
+//                            是工作台面板唯一入口，安静模式不能让它消失。
 // 注册保持可选：settings 服务不存在时，客户端回退到这里的内置默认值。
 export const SETTINGS_NS = 'hmos-sidebar'
 
@@ -54,7 +56,8 @@ function createSettingsSchema() {
       keepCollapsed: Schema.boolean().default(DEFAULT_SETTINGS.popup.keepCollapsed),
     }).default(cloneSettings(DEFAULT_SETTINGS.popup)),
     ball: Schema.object({
-      hideWithoutProject: Schema.boolean().default(DEFAULT_SETTINGS.ball.hideWithoutProject),
+      hideWithoutProject: Schema.boolean().default(DEFAULT_SETTINGS.ball.hideWithoutProject)
+        .description('在非鸿蒙工作区把悬浮球显示为待命状态（变暗、略微缩小；悬停或聚焦即恢复），而不是隐藏它——悬浮球始终可见、可点击。'),
     }).default(cloneSettings(DEFAULT_SETTINGS.ball)),
   })
 }
@@ -84,7 +87,8 @@ export const Config = Schema.object({
     keepCollapsed: volatileField(Schema.boolean().default(DEFAULT_SETTINGS.popup.keepCollapsed)),
   }).default(cloneSettings(DEFAULT_SETTINGS.popup)),
   ball: Schema.object({
-    hideWithoutProject: volatileField(Schema.boolean().default(DEFAULT_SETTINGS.ball.hideWithoutProject)),
+    hideWithoutProject: volatileField(Schema.boolean().default(DEFAULT_SETTINGS.ball.hideWithoutProject)
+      .description('在非鸿蒙工作区把悬浮球显示为待命状态（变暗、略微缩小；悬停或聚焦即恢复），而不是隐藏它——悬浮球始终可见、可点击。')),
   }).default(cloneSettings(DEFAULT_SETTINGS.ball)),
 })
 

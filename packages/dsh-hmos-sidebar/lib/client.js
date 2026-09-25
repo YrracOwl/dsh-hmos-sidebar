@@ -12,7 +12,8 @@
 //
 // 官方设置（HarmonyOS 工作台）：
 //   popup.keepCollapsed      默认不展开弹窗（true：探测到鸿蒙工程也不自动展开面板）
-//   ball.hideWithoutProject  在非鸿蒙工作区默认不展示悬浮球（true：未探测到工程即隐藏）
+//   ball.hideWithoutProject  在非鸿蒙工作区默认把悬浮球降级为「待命」外观（true：未探测
+//                            到工程时变暗并略微缩小，但**永不隐藏**——悬浮球是面板唯一入口）
 // 安静默认值与 Host 半 DEFAULT_SETTINGS 一致；settings 服务缺失时整体回退默认。
 // 卡片席位有两个，因为 DSH 在 0.1.7-rc.2 删除了旧的那个：≤ 0.1.5 是
 // `settings.plugin.item`（key=hmos-sidebar），≥ 0.1.7-rc.2 是带键的行席位
@@ -35,8 +36,14 @@ window.__ModuleLoader__.load({
    因此覆盖 shell 内容；菜单(z≈20–100)、dialog(1000)、toast(1100) 等更高 overlay 仍覆盖本面板。
    层内只用低数值层级（ball 2 > panel 1），禁止 int32 上限级极端 z-index。 */
 .hmos-root{position:fixed;z-index:1;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:13px;color:var(--text-color,#fff);pointer-events:auto}
-.hmos-ball{position:fixed;right:18px;bottom:18px;z-index:2;width:48px;height:48px;border-radius:50%;border:1px solid rgba(255,255,255,.18);background:var(--accent,#2563eb);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.28);user-select:none;transition:background .15s,transform .15s,box-shadow .15s;font-family:system-ui,sans-serif}
+.hmos-ball{position:fixed;right:18px;bottom:18px;z-index:2;width:48px;height:48px;border-radius:50%;border:1px solid rgba(255,255,255,.18);background:var(--accent,#2563eb);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.28);user-select:none;transition:background .15s,opacity .15s,transform .15s,box-shadow .15s;font-family:system-ui,sans-serif;opacity:var(--ball-idle-opacity,1);transform:scale(var(--ball-idle-scale,1))}
 .hmos-ball:hover{background:var(--accent-strong,#1d4ed8);transform:scale(1.06);box-shadow:0 6px 18px rgba(0,0,0,.34)}
+/* 安静待命球：未探测到鸿蒙工程时只做视觉降级（内联 --ball-idle-opacity / --ball-idle-scale
+   由上面这条 .hmos-ball 规则消费），绝不关闭命中或可见性（pointer-events / visibility
+   都保持默认值）——命中区域、点击与拖拽行为、z-index:2 层级全部保持原样。hover /
+   focus-visible 恢复全不透明度（并回到 hover 放大尺寸），保证待命球仍然可被发现。 */
+.hmos-ball-idle:hover,.hmos-ball-idle:focus-visible{opacity:1;transform:scale(1.06)}
+.hmos-ball:focus-visible{outline:2px solid var(--accent-strong,#1d4ed8);outline-offset:2px}
 .hmos-panel{position:fixed;z-index:1;width:430px;max-width:94vw;height:min(78vh,640px);display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1,#222);background:color-mix(in srgb, var(--dsw-alias-bg-layer-1,#222) 92%, transparent);backdrop-filter:blur(14px);border:1px solid var(--dsw-alias-border-l1,#444);border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.45);overflow:hidden;color:var(--text-color,#fff)}
 .hmos-panel.ball-mode{display:none}
 .hmos-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(127,127,127,.07);border-bottom:1px solid var(--border,rgba(127,127,127,.2));cursor:grab;user-select:none;flex-shrink:0;color:var(--text-color,#fff)}
@@ -245,8 +252,8 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
       {
         path: ['ball', 'hideWithoutProject'],
         kind: 'bool',
-        label: '在非鸿蒙工作区，默认不展示悬浮球',
-        hint: '开启时当前工作区未探测到鸿蒙工程则隐藏右下角悬浮球，探测完成前同样隐藏（默认）。关闭后悬浮球始终显示。',
+        label: '在非鸿蒙工作区，悬浮球显示为待命状态',
+        hint: '开启时（默认）当前工作区未探测到鸿蒙工程就把右下角悬浮球降级为「待命」外观（变暗、略微缩小；鼠标悬停或键盘聚焦即恢复全不透明度），但它**始终可见、可点击**——悬浮球是打开工作台的唯一入口，安静模式绝不会隐藏它。关闭后悬浮球保持全强度显示。',
       },
     ]
 
@@ -513,7 +520,7 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
         },
           React.createElement('span', { className: 'dhssHeadText' },
             React.createElement('span', { className: 'dhssName' }, 'HarmonyOS 工作台'),
-            React.createElement('span', { className: 'dhssDescription' }, '鸿蒙工程悬浮球与弹窗的默认行为。默认安静：非鸿蒙工作区不展示悬浮球，也不自动展开弹窗。'),
+            React.createElement('span', { className: 'dhssDescription' }, '鸿蒙工程悬浮球与弹窗的默认行为。默认安静：非鸿蒙工作区把悬浮球显示为待命状态（变暗但不隐藏，仍可点击），也不自动展开弹窗。'),
           ),
           dirty ? React.createElement('span', { className: 'dhssPending' }, '未保存') : null,
           React.createElement(CardChevron, { className: open ? 'dhssChevron dhssChevronOpen' : 'dhssChevron' }),
@@ -780,7 +787,7 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
         key: ROW_CONFIG_KEY,
       }, function HmosRowConfig(props) {
         if (props && props.view === 'summary') {
-          return React.createElement('span', { style: SUMMARY_STYLE }, '鸿蒙工作台开关：安静模式与悬浮球按工程隐藏。')
+          return React.createElement('span', { style: SUMMARY_STYLE }, '鸿蒙工作台开关：安静模式下非鸿蒙工作区的悬浮球显示为待命状态。')
         }
         return React.createElement(HmosSettingsCard, { getScope: getSettingsScope, api: connectionApi })
       }))
@@ -1257,10 +1264,21 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
         tabContent[tab],
         e('div', { className: 'hmos-resize', title: '拖动调整大小', onMouseDown: onResizeDown }))
 
-      // 悬浮球可见性：「在非鸿蒙工作区，默认不展示悬浮球」开启时，只有探测确认
-      // 当前工作区存在鸿蒙工程后才显示；探测进行中同样隐藏（安静优先）。
-      // 设置关闭（hideWithoutProject=false）时回到旧行为：始终显示。
-      const ballVisible = !settings.hideWithoutProject || (probed && projectValid)
+      // 悬浮球呈现策略：安静模式（hideWithoutProject=true，默认）**不再隐藏**悬浮球，
+      // 只把它降级为「待命」外观。悬浮球是工作台面板唯一入口，探测链路（当前会话 cwd
+      // → WorkspaceReporter → /hmos/probe）任何一环不可用时若把它藏起来，整个面板在
+      // 每个工作区都打不开——这正是要修掉的故障。
+      //   ballFaded === false：探测确认当前工作区有鸿蒙工程，或用户关闭了安静模式
+      //                        → 今天的全强度悬浮球，几何 / 外观 / 行为完全不变。
+      //   ballFaded === true ：同一元素、同一点击与拖拽行为，只做视觉降级
+      //                        （不透明度 .38 + 轻微缩小 .72），仍然可点击、可命中
+      //                        （绝不关闭 pointer-events / visibility）；
+      //                        hover / focus-visible 由 CSS 恢复全不透明度。
+      // 唯一让悬浮球 display:'none' 的情形是面板已展开（此时面板自身负责显示）。
+      const ballFaded = settings.hideWithoutProject && !(probed && projectValid)
+      const ballLabel = ballFaded
+        ? '鸿蒙工程工作台（待命：当前工作区未检测到鸿蒙工程；点击仍可打开工作台）'
+        : '鸿蒙工程工作台'
 
       return e('div', {
         className: 'hmos-root',
@@ -1274,11 +1292,17 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
       },
         e('button', {
           ref: ballRef,
-          className: 'hmos-ball', title: '鸿蒙工程工作台',
+          className: 'hmos-ball' + (ballFaded ? ' hmos-ball-idle' : ''),
+          title: ballLabel,
+          'aria-label': ballLabel,
           onClick: () => { if (!ballDrag.current.moving) setOpen(true) },
           onMouseDown: onBallDown,
           style: Object.assign(
-            { display: (!ballVisible || open) ? 'none' : 'flex' },
+            // 唯一产生 display:'none' 的分支：面板已展开。
+            { display: open ? 'none' : 'flex' },
+            // 待命球的视觉降级：只给自定义属性，由 CSS 的 .hmos-ball 规则消费，
+            // 这样 :hover / :focus-visible 无需 !important 即可恢复全不透明度。
+            ballFaded ? { '--ball-idle-opacity': 0.38, '--ball-idle-scale': 0.72 } : {},
             ballPos.x !== null && ballPos.y !== null ? { left: ballPos.x, top: ballPos.y, right: 'auto', bottom: 'auto' } : {}),
         },
           e('svg', { width: 22, height: 22, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' },

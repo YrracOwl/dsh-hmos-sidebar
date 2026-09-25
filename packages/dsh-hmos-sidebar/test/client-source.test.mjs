@@ -69,16 +69,47 @@ test('official settings card registers under settings.plugin.item keyed by the n
 })
 
 test('two behavior toggles ship with quiet defaults (both ON)', () => {
-  // 1. 默认不展开弹窗 2. 在非鸿蒙工作区，默认不展示悬浮球
+  // 1. 默认不展开弹窗 2. 在非鸿蒙工作区，悬浮球默认显示为「待命」（降级，不是隐藏）
   assert.match(source, /\['popup', 'keepCollapsed'\]/)
   assert.match(source, /\['ball', 'hideWithoutProject'\]/)
   assert.match(source, /\{ ready: false, keepCollapsed: true, hideWithoutProject: true \}/,
     'fallback defaults must match the host DEFAULT_SETTINGS quiet mode')
 })
 
-test('floating ball hides until the workspace probe confirms a HarmonyOS project', () => {
-  assert.match(source, /const ballVisible = !settings\.hideWithoutProject \|\| \(probed && projectValid\)/)
-  assert.match(source, /\(!ballVisible \|\| open\) \? 'none' : 'flex'/)
+test('quiet mode never hides the floating ball: it renders a faded idle ball instead', () => {
+  // 悬浮球是工作台面板唯一入口（面板只能由它打开）。安静模式（hideWithoutProject=true，
+  // 默认）在探测链路（当前会话 cwd → WorkspaceReporter → /hmos/probe）任何一环不可用时
+  // 都不能让它消失——那会让面板在任何工作区都打不开。正确行为是同一元素只做视觉降级。
+  assert.match(source, /const ballFaded = settings\.hideWithoutProject && !\(probed && projectValid\)/,
+    'ballFaded must be derived exactly as quiet-mode-on AND not(probed && projectValid)')
+  assert.doesNotMatch(source, /ballVisible/, 'the old hide-the-ball flag must be gone entirely')
+  // 唯一剩余的 display 判据：面板已展开时藏球（面板自身接管显示）。
+  assert.equal((source.match(/\{ display: open \? 'none' : 'flex' \}/g) || []).length, 1,
+    'the only display:none left is the panel-open case')
+  assert.equal((source.match(/'none'\s*:\s*'flex'/g) || []).length, 1,
+    'no second visibility ternary may gate the ball')
+})
+
+test('the faded ball carries the dimming style, an accessible idle label, and unchanged behavior', () => {
+  // 降级只走内联自定义属性 + CSS var()：这样 :hover/:focus-visible 无需 !important
+  // 就能恢复全不透明度；点击/拖拽行为与层级（z-index:2）原样保留。
+  assert.match(source, /className: 'hmos-ball' \+ \(ballFaded \? ' hmos-ball-idle' : ''\)/)
+  assert.match(source, /ballFaded \? \{ '--ball-idle-opacity': 0\.38, '--ball-idle-scale': 0\.72 \} : \{\}/)
+  assert.match(source, /\.hmos-ball\{[^}]*opacity:var\(--ball-idle-opacity,1\);transform:scale\(var\(--ball-idle-scale,1\)\)/)
+  assert.match(source, /\.hmos-ball-idle:hover,\.hmos-ball-idle:focus-visible\{opacity:1;/,
+    'hover/focus-visible must restore full opacity for the idle ball')
+  assert.match(source, /\.hmos-ball:focus-visible\{outline:/)
+  // 可发现性 + 无障碍：待命球说明未检测到鸿蒙工程，并说明点击仍可打开工作台。
+  assert.match(source, /'鸿蒙工程工作台（待命：当前工作区未检测到鸿蒙工程；点击仍可打开工作台）'/)
+  assert.match(source, /title: ballLabel/)
+  assert.match(source, /'aria-label': ballLabel/)
+  // 降级绝不能变成隐藏：命中/可见性与原点击、拖拽行为都不能被关掉。
+  assert.doesNotMatch(source, /pointer-events:\s*none/)
+  assert.doesNotMatch(source, /visibility:\s*hidden/)
+  assert.match(source, /onClick: \(\) => \{ if \(!ballDrag\.current\.moving\) setOpen\(true\) \}/)
+  assert.match(source, /onMouseDown: onBallDown/)
+  // 层级策略不变（ball 2 > panel 1，菜单/对话框/提示仍可覆盖）。
+  assert.match(source, /\.hmos-ball\{[^}]*z-index:2/)
 })
 
 test('panel auto-expands only when 默认不展开弹窗 is OFF and a project was found', () => {
