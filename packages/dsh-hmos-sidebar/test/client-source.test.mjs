@@ -106,10 +106,22 @@ test('settings scope stays optional and is never a hard inject gate', () => {
 })
 
 test('client resolves the current session cwd and probes it', () => {
-  assert.match(source, /useSessions\(\(snapshot\) => snapshot\.current\)/)
-  assert.match(source, /snapshot\.byId\[current\].*\.cwd/)
+  // ≤ 0.1.5 的会话列表快照自带 `current`；0.1.7-rc.2 的 SessionListState 没有它（只有
+  // { ids, byId, phase, projectionsBySession }，view selection 被移出了会话控制器），而
+  // root 槽位（shell.overlay）的标准属性里没有"当前会话"来源。所以额外由会话作用域的
+  // WorkspaceReporter 发布"正在被查看会话的 cwd"，覆盖层订阅它。
+  assert.match(source, /useSessions\(\(snapshot\) => snapshot && snapshot\.current\)/)
+  assert.match(source, /snapshot\.byId\[legacyCurrent\]/)
+  assert.match(source, /function WorkspaceReporter\(props\)/)
+  assert.match(source, /snapshot\.byId\[props\.sessionId\]/)
+  assert.match(source, /name: 'conversation\.input\.left', id: 'dsh-hmos-sidebar-workspace'/)
+  assert.match(source, /const workspacePath = legacyPath \|\| reported/)
   assert.match(source, /api\('hmos\/probe', \{ path: requestedPath \|\| undefined \}\)/)
   assert.match(source, /\}, \[workspacePath\]\)/)
+  // 探测到的工程根必须与"当前工作区"相关：宿主在没有 workspace 时会回退到配置的 projectPath
+  // （也会扫描显式 projectRoots），认下来会让悬浮球在任何会话都显示。
+  assert.match(source, /const related = isWorkspaceProject\(found, requestedPath\)/)
+  assert.match(source, /if \(!related\) return/)
 })
 
 test('select popup uses adaptive background and text colors', () => {
@@ -293,8 +305,8 @@ test('panel drag: normal mouseup removes document listeners idempotently and res
   }
   const dispose = apply(ctx)
   assert.ok(ctx.slotNames.includes('shell.overlay'))
-  assert.deepEqual(ctx.slotNames.slice().sort(), ['settings.plugin.item', 'shell.overlay'],
-    'apply registers the overlay and the official plugin settings card')
+  assert.deepEqual(ctx.slotNames.slice().sort(), ['conversation.input.left', 'settings.plugin.item', 'shell.overlay'],
+    'apply registers the overlay, the official plugin settings card, and the session-scoped workspace reporter')
   assert.equal(typeof dispose, 'function', 'combined slot disposer returned')
 
   doc.body.style.userSelect = 'text'
@@ -446,7 +458,8 @@ test('apply binds the hmos-sidebar settings scope and registers the settings car
 
   // 联合 disposer：两次 inject 的 disposer 都被调用且不抛错。
   dispose()
-  assert.equal(ctx.slotNames.length, 2, 'dispose ran without throwing')
+  assert.ok(ctx.slotNames.includes('conversation.input.left'), 'session-scoped workspace reporter registered')
+  assert.equal(ctx.slotNames.length, 3, 'dispose ran without throwing')
 })
 
 test('a host with no settings transport still activates and registers only the overlay', () => {

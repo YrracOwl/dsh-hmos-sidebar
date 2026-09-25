@@ -660,9 +660,59 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
       return React.createElement('div', { ref: hostRef, 'data-dsh-hmos-sidebar': '' })
     }
 
+    // rc.2 的 SessionListState 没有 `current`（只有 { ids, byId, phase, projectionsBySession }）：
+    // view selection 被移出了会话控制器，而 root 槽位（shell.overlay）的标准属性里根本没有
+    // "当前会话"来源（useResource/useWorkspaces/usePanelInfo/useSessions/useSessionStatus/
+    // useSessionRetainInfo）。只有会话作用域槽位才拿得到 sessionId，所以由 WorkspaceReporter
+    // 把"正在被查看会话的 cwd"发布到这里，覆盖层订阅它。
+    const viewed = { path: '', listeners: new Set() }
+    function publishViewedWorkspace(path) {
+      const next = typeof path === 'string' ? path : ''
+      if (next === viewed.path) return
+      viewed.path = next
+      for (const listener of viewed.listeners) { try { listener() } catch {} }
+    }
+
+    // 探测结果只有与「当前工作区」相关（相等 / 祖先 / 后代）才算这个工作区有鸿蒙工程。
+    // 没有 workspace 时宿主会回退到配置的 projectPath，也会扫描显式 projectRoots —— 那些都
+    // 不是"当前工作区有工程"，认下来会让悬浮球在任何会话都显示。
+    function isWorkspaceProject(found, requested) {
+      if (!found || !requested) return false
+      const norm = (p) => String(p).replace(/[\\/]+/g, '/').replace(/\/+$/, '').toLowerCase()
+      const a = norm(found)
+      const b = norm(requested)
+      return a === b || a.startsWith(b + '/') || b.startsWith(a + '/')
+    }
+
+    // 不渲染任何东西：只是会话作用域的 cwd 信号源（切换会话/关闭会话都会更新或清空）。
+    function WorkspaceReporter(props) {
+      const cwd = props.useSessions((snapshot) => {
+        const row = snapshot && snapshot.byId ? snapshot.byId[props.sessionId] : undefined
+        return (row && row.cwd) || ''
+      })
+      React.useEffect(() => {
+        publishViewedWorkspace(cwd)
+        return () => publishViewedWorkspace('')
+      }, [cwd])
+      return null
+    }
+
     function HmosSlotEntry({ useSessions, getSettingsScope }) {
-      const current = useSessions((snapshot) => snapshot.current)
-      const workspacePath = useSessions((snapshot) => current === undefined ? '' : (snapshot.byId[current] && snapshot.byId[current].cwd) || '')
+      // ≤ 0.1.5 的会话列表快照自带 `current`；rc.2 没有，于是取会话作用域发布的 cwd。
+      const legacyCurrent = useSessions((snapshot) => snapshot && snapshot.current)
+      const legacyPath = useSessions((snapshot) => {
+        if (legacyCurrent === undefined || legacyCurrent === null) return ''
+        const row = snapshot && snapshot.byId ? snapshot.byId[legacyCurrent] : undefined
+        return (row && row.cwd) || ''
+      })
+      const [reported, setReported] = React.useState(viewed.path)
+      React.useEffect(() => {
+        const listener = () => setReported(viewed.path)
+        viewed.listeners.add(listener)
+        listener()
+        return () => { viewed.listeners.delete(listener) }
+      }, [])
+      const workspacePath = legacyPath || reported
       return React.createElement(HmosOverlay, { workspacePath, getSettingsScope })
     }
 
@@ -684,6 +734,13 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
       const disposeOverlay = ctx.slots.inject('shell.overlay', () => ctx.slots.register(
         { name: 'shell.overlay', id: 'dsh-hmos-sidebar', order: 80, label: 'HarmonyOS 工作台' },
         (props) => React.createElement(HmosSlotEntry, { useSessions: props.useSessions, getSettingsScope }),
+      ))
+
+      // 会话作用域的 cwd 信号源（见 WorkspaceReporter）：root 槽位在 rc.2 拿不到当前会话，
+      // 所以补一个不渲染任何东西的贡献者。宿主不声明该槽位（旧宿主 / 无会话）时它不生效。
+      ctx.slots.inject('conversation.input.left', () => ctx.slots.register(
+        { name: 'conversation.input.left', id: 'dsh-hmos-sidebar-workspace', order: 999 },
+        WorkspaceReporter,
       ))
 
       // 设置卡片必须从「拥有设置传输的上下文」里注册：即 ctx.inject([...], cb) 的回调，
@@ -876,7 +933,10 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
           setProbed(true)
           if (!r || !r.ok) return
           const found = r.foundRoot || ''
-          setProjectValid(!!found)
+          // 只有与「当前工作区」相关的工程根才算有效（见 isWorkspaceProject）。
+          const related = isWorkspaceProject(found, requestedPath)
+          setProjectValid(related)
+          if (!related) return
           // 「默认不展开弹窗」关闭且本次探测发现鸿蒙工程时，自动展开一次面板。
           // openRef 反映最新面板状态：用户已手动展开时不重复干预；每次工作区
           // 探测至多触发一次（effect 以 workspacePath 为依赖）。
