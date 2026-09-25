@@ -5,6 +5,34 @@ import vm from 'node:vm'
 
 const source = fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
 
+// ── rc.2 settings seat: DSH 0.1.7-rc.2 REMOVED settings.plugin.item ──────────
+
+test('the settings card also registers on the rc.2 row seat with the ledger key', () => {
+  // The key IS the contract: the official plugin-manager renders a bundle row's
+  // configure control only while `rowConfigKey(pkg.name, row.rowId)` sits on the
+  // `plugins.row.config` ledger. For this package the row id equals the package
+  // name, and the manifest plus cordis.patch.yml are the authority for both halves.
+  const manifest = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  const patch = fs.readFileSync(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+  const rowIds = [...patch.matchAll(/^\s*- id: (\S+)\s*$/gm)].map((match) => match[1])
+  assert.ok(rowIds.includes(manifest.name), `cordis.patch.yml must declare the ${manifest.name} row; saw ${rowIds.join(', ')}`)
+  const expected = `${manifest.name}#${manifest.name}`
+  assert.equal(expected, 'dsh-hmos-sidebar#dsh-hmos-sidebar')
+  assert.ok(
+    source.includes(`const ROW_CONFIG_KEY = '${expected}'`),
+    `client.js must carry the ledger key derived from package.json#name plus the patch row id (${expected})`,
+  )
+  assert.match(source, /sctx\.slots\.inject\('plugins\.row\.config'/)
+  assert.match(source, /name: 'plugins\.row\.config'/)
+  assert.match(source, /key: ROW_CONFIG_KEY/)
+  assert.match(source, /props\.view === 'summary'/)
+  assert.match(source, /ctx\.inject\(\['slots'\], registerRowConfig\)/)
+  // The ≤ 0.1.5 seat stays declared, and the host-owned optional `form` prop is not
+  // consumed: both seats keep the single resolved transport.
+  assert.match(source, /settings\.plugin\.item/)
+  assert.doesNotMatch(source, /props\.form/)
+})
+
 test('client mounts through official shell.overlay slot', () => {
   assert.match(source, /ctx\.slots\.inject\('shell\.overlay'/)
   assert.match(source, /name: 'shell\.overlay', id: 'dsh-hmos-sidebar'/)

@@ -35,14 +35,14 @@ HarmonyOS 开发工作台（DSH Web 悬浮窗，**Windows-only**）。一个 npm
 
 ## 设置 → 插件：HarmonyOS 工作台
 
-插件在官方「设置 → 插件」页注册一张可展开的设置卡片（设置命名空间 `hmos-sidebar`），两个开关默认均为**开**（安静模式）：
+插件注册一张可展开的设置卡片（设置命名空间 `hmos-sidebar`），两个开关默认均为**开**（安静模式）：
 
 | 配置 | 默认 | 行为 |
 | --- | --- | --- |
 | 默认不展开弹窗（`popup.keepCollapsed`） | 开 | 即使当前工作区探测到鸿蒙工程也不自动展开面板；关闭后，探测到鸿蒙工程时自动展开一次 |
 | 在非鸿蒙工作区，默认不展示悬浮球（`ball.hideWithoutProject`） | 开 | 当前工作区未探测到鸿蒙工程则隐藏悬浮球（探测完成前同样隐藏）；关闭后悬浮球始终显示 |
 
-- 开关通过官方 settings 服务持久化（保存/放弃修改/恢复默认/只读提示与官方卡片一致）。两代宿主的通道不同：≤ 0.1.5 由 host 注册 `hmos-sidebar` 命名空间、客户端经 `settingsScope` 订阅；≥ 0.1.7 没有 `register`，命名空间就是本插件入口导出的 `Config`（键为 loader entry id `dsh-hmos-sidebar`，两个叶子标记 `volatile`），客户端经 `configForms` 读同一份值。
+- 开关通过官方 settings 服务持久化（保存/放弃修改/恢复默认/只读提示与官方卡片一致）。两代宿主的通道不同：≤ 0.1.5 由 host 注册 `hmos-sidebar` 命名空间、客户端经 `settingsScope` 订阅；≥ 0.1.7 没有 `register`，命名空间就是本插件入口导出的 `Config`（键为 loader entry id `dsh-hmos-sidebar`，两个叶子标记 `volatile`），客户端经 `configForms` 读同一份值。卡片**席位**同样分两代：≤ 0.1.5 声明 `settings.plugin.item`（键 `hmos-sidebar`）；0.1.7-rc.2 删除了该槽位，bundle 行的配置席位是带键的 `plugins.row.config`，键为 `dsh-hmos-sidebar#dsh-hmos-sidebar`，只有该精确键在注册账本上时插件管理页才渲染该行的配置入口。
 - 设置服务不可用时整体回退到上表默认值，主功能不受影响。
 
 ## 工具与 RPC 的分离

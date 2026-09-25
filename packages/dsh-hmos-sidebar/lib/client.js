@@ -10,10 +10,13 @@
 // Tabs: 构建 / 部署 / 设备 / 输出. Deploy & device actions show their output
 // inline in their own tab (no tab jumping); build actions feed the 输出 tab.
 //
-// 官方设置（设置 → 插件 → HarmonyOS 工作台，keyed slot key=hmos-sidebar）：
+// 官方设置（HarmonyOS 工作台）：
 //   popup.keepCollapsed      默认不展开弹窗（true：探测到鸿蒙工程也不自动展开面板）
 //   ball.hideWithoutProject  在非鸿蒙工作区默认不展示悬浮球（true：未探测到工程即隐藏）
 // 安静默认值与 Host 半 DEFAULT_SETTINGS 一致；settings 服务缺失时整体回退默认。
+// 卡片席位有两个，因为 DSH 在 0.1.7-rc.2 删除了旧的那个：≤ 0.1.5 是
+// `settings.plugin.item`（key=hmos-sidebar），≥ 0.1.7-rc.2 是带键的行席位
+// `plugins.row.config`（key=ROW_CONFIG_KEY=dsh-hmos-sidebar#dsh-hmos-sidebar）。
 
 window.__ModuleLoader__.load({
   id: 'dsh-hmos-sidebar',
@@ -159,6 +162,18 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
     // scope 缺失 / 未就绪 / 值缺失时一律回退默认值（与 Host DEFAULT_SETTINGS 一致）：
     // 设置是可选增强，绝不影响工作台主功能。
     const SETTINGS_NS = 'hmos-sidebar'
+    // ── rc.2 行席位键 ────────────────────────────────────────────────────────
+    // DSH 0.1.7-rc.2 删除了 `settings.plugin.item`。走廊上「一个 bundle 行的配置
+    // 席位」是带键槽位 `plugins.row.config`，官方插件管理页只有在注册账本里存在下面
+    // 这个精确键时才渲染该行的配置入口：
+    //     rowConfigKey(pkg.name, row.rowId) → `${pkg.name}#${row.rowId}`
+    //     has: (row) => ledger.rows.has(rowConfigKey(pkg.name, row.rowId))
+    // 所以这个键就是契约本身：package.json#name + 本包 cordis.patch.yml 声明的行 id。
+    // 常量只此一处并导出供检查，测试从那两个文件反推后比对。
+    const ROW_CONFIG_KEY = 'dsh-hmos-sidebar#dsh-hmos-sidebar'
+    // summary 一行用内联样式：卡片样式由卡片首次渲染时惰性创建，
+    // 而 summary 可能先于任何一次卡片渲染出现。
+    const SUMMARY_STYLE = { color: 'var(--dsw-alias-label-tertiary)', fontSize: '13px', lineHeight: 1.5 }
 
     // ── settings-scope 可移植层（DSH 0.1.5 ↔ 0.1.7-rc.1）────────────────────
     //
@@ -681,6 +696,28 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
       ctx.inject(['settingsScope'], registerCard)
       ctx.inject(['configForms'], (sctx) => { if (disposeCard === null) registerCard(sctx) })
 
+      // ── rc.2 行席位：带键槽位 `plugins.row.config` ────────────────────────────
+      // 0.1.7-rc.2 删除了 `settings.plugin.item`；bundle 行的配置席位改用
+      // `plugins.row.config`，且只有持精确键 ROW_CONFIG_KEY 的占位存在时，管理页才
+      // 渲染该行的配置入口。旧席位在 ≤ 0.1.5 仍被声明，所以两个注册并存、无需版本
+      // 嗅探：`slots.inject` 只在自己那个槽位被声明时触发，声明塌缩时自动释放。
+      // 宿主用同一个组件渲染两种视图：summary 只出一行文字（无控件），page 就是原卡片。
+      // 宿主给的 form prop 刻意不消费——取值仍走唯一那条传输（settingsScope ≤ 0.1.5 /
+      // configForms ≥ 0.1.7），保持一条读路径、一条写路径。卡片用 getter 读稳定 scope，
+      // 因此这里不依赖传输是否已就绪。
+      // `slots` 以非门控方式等待，回调把注册 disposer 交回；该控制器属于调用方 fiber，
+      // 插件卸载时会取消等待并移除贡献，无需再挂进下面的手工清理。
+      const registerRowConfig = (sctx) => sctx.slots.inject('plugins.row.config', () => sctx.slots.register({
+        name: 'plugins.row.config',
+        key: ROW_CONFIG_KEY,
+      }, function HmosRowConfig(props) {
+        if (props && props.view === 'summary') {
+          return React.createElement('span', { style: SUMMARY_STYLE }, '鸿蒙工作台开关：安静模式与悬浮球按工程隐藏。')
+        }
+        return React.createElement(HmosSettingsCard, { getScope: getSettingsScope, api: connectionApi })
+      }))
+      ctx.inject(['slots'], registerRowConfig)
+
       // 拖拽可能跨 apply 生命周期：插件在拖拽中途 unload/update 时，
       // ctx.effect cleanup 兜底强制结束仍在飞行的 document 拖拽并恢复 body 状态。
       ctx.effect(() => () => disposeAllActiveDrags(), 'dsh-hmos-sidebar: active drags')
@@ -1180,6 +1217,8 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
     }
 
     exports.apply = apply
+    // rc.2 行席位键：导出以便测试/检查者与 package.json#name + cordis.patch.yml 的行 id 比对。
+    exports.ROW_CONFIG_KEY = ROW_CONFIG_KEY
     // 'settingsScope'（≤ 0.1.5）与 'configForms'（≥ 0.1.7-rc.1）都声明：cordis 把
     // 每个 inject 名当作独立的门，所以两个宿主上都能激活，实际用哪个由
     // resolveSettingsScope 决定。两者都是可选服务——缺失时工作台照常运行，
