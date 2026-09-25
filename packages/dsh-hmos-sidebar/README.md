@@ -22,7 +22,7 @@ HarmonyOS 开发工作台（DSH Web 悬浮窗，**Windows-only**）。一个 npm
 
 在 DSH Web 页面右下角提供一个**可拖动的悬浮球**（手机图标），点击展开非模态面板，分四个 Tab：
 
-默认**安静模式**（v0.3+）：当前工作区未探测到鸿蒙工程时不展示悬浮球，也绝不自动展开弹窗；探测到鸿蒙工程时显示悬浮球。两类行为都可在 **设置 → 插件 → HarmonyOS 工作台** 调整（见下文）。
+默认**安静模式**（v0.3+）：当前工作区未探测到鸿蒙工程时不展示悬浮球，也绝不自动展开弹窗；探测到鸿蒙工程时显示悬浮球。两类行为都可在设置卡片里调整：≤ 0.1.5 在 **设置 → 插件**，≥ 0.1.7-rc.2 在左侧边栏第一个面板图标 **「插件」** 里打开 `dsh-hmos-sidebar` bundle 的 `dsh-hmos-sidebar` 行（见下文）。
 
 | Tab | 功能 |
 | --- | --- |
@@ -33,7 +33,7 @@ HarmonyOS 开发工作台（DSH Web 悬浮窗，**Windows-only**）。一个 npm
 
 弹窗标题显示 **bundleName + 工程应用图标 + 版本号**；面板位置/大小、悬浮球位置均有记忆。
 
-## 设置 → 插件：HarmonyOS 工作台
+## 设置卡片：HarmonyOS 工作台（席位与导航随宿主版本不同）
 
 插件注册一张可展开的设置卡片（设置命名空间 `hmos-sidebar`），两个开关默认均为**开**（安静模式）：
 
@@ -142,7 +142,7 @@ lib/
   index.js         Host 半：webServer 路由 /hmos/api/*（动作级 RPC）+ loopback fence + 64KiB 限制
   dcli-tools.mjs   ./tools 导出点：41 个 dcli__* 工具子模块（含 managed-markers AGENTS 生成）
   environment.js   共享环境解析：cli/Studio/hdc/hvigor/json5/projectRoots（config→env→探测，动态）
-  client.js        Client 半（web）：悬浮球 + 面板 UI（Shadow DOM，独立于 better-sidebar；层叠走官方 shell.overlay 层，可覆盖 shell 内容，菜单/dialog/toast 等更高 overlay 仍覆盖面板，禁止极端 z-index）+ 官方「设置 → 插件」设置卡片
+  client.js        Client 半（web）：悬浮球 + 面板 UI（Shadow DOM，独立于 better-sidebar；层叠走官方 shell.overlay 层，可覆盖 shell 内容，菜单/dialog/toast 等更高 overlay 仍覆盖面板，禁止极端 z-index）+ 官方设置卡片（≤ 0.1.5 在 设置 → 插件；≥ 0.1.7-rc.2 在侧边栏「插件」面板的 bundle 行）
 cordis.patch.yml   bundle patch（insert 行，无个人配置，Windows-only）
 presets/
   <id>/                    ≤ 0.1.5 目录型 preset：agent.cordis.yml + preset.yml + skills/
