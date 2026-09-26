@@ -424,7 +424,11 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
       const scope = getScope()
       const api = props.api
       const [tick, setTick] = React.useState(0)
-      const [open, setOpen] = React.useState(false)
+      // 单卡片席位——行席位的 `view === 'page'` 分支与附加的 `settings.section`
+      // 页面——传 `defaultOpen: true`：整页只有这一张卡片，应当直接展开。≤ 0.1.5 的
+      // 旧列表席位（`settings.plugin.item`）不传，保持原来的折叠默认。表头按钮仍然
+      // 可以手动收起/展开，行为不变。
+      const [open, setOpen] = React.useState(props.defaultOpen === true)
       const [staged, setStaged] = React.useState({})
       const [saving, setSaving] = React.useState(false)
       const [failed, setFailed] = React.useState(false)
@@ -853,9 +857,37 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
         if (props && props.view === 'summary') {
           return React.createElement('span', { style: SUMMARY_STYLE }, '鸿蒙工作台开关：安静模式下非鸿蒙工作区的悬浮球显示为待命状态。')
         }
-        return React.createElement(HmosSettingsCard, { getScope: getSettingsScope, onScopeArrival: onSettingsScopeArrival, api: connectionApi })
+        return React.createElement(HmosSettingsCard, { getScope: getSettingsScope, onScopeArrival: onSettingsScopeArrival, api: connectionApi, defaultOpen: true })
       }))
       ctx.inject(['slots'], registerRowConfig)
+
+      // ── 附加席位：根级列表槽位 `settings.section`（设置里的一级页面）────────────
+      // 0.1.7-rc.2 另外声明根级列表槽位 `settings.section`（“一个列表项 = 一个设置
+      // 页”），把同一张卡片作为设置里的一级页面直接露出。它纯粹是「附加」的：上面的行
+      // 席位仍是 bundle 行的配置入口，两者渲染**同一个** HmosSettingsCard、走**同一
+      // 条**传输——不新增第二套设置 UI，也不新增第二条读写路径。
+      // 席位只声明三个注册项——`id`（必填）、`order`、`label`——因此只传这三个。
+      // `label` 是 THUNK：外壳每次投影都重新读取，而不是缓存注册方本地化的文本。
+      // 与行席位同形：`slots` 以非门控方式等待，回调**返回**注册 disposer，且该 disposer
+      // 加入插件既有的释放路径（见下面的返回值，与旧卡片、覆盖层一起释放），所以
+      // stop / update / HMR 都会移除这个席位。席位依赖宿主版本——不声明它的宿主永远
+      // 不会触发内层 `slots.inject`，因此这个注册绝不可能成为插件的激活门槛。
+      let disposeSettingsSection = null
+      const registerSettingsSection = (sctx) => {
+        disposeSettingsSection = sctx.slots.inject('settings.section', () => sctx.slots.register({
+          name: 'settings.section',
+          id: 'yotk-hmos-sidebar',
+          order: 64,
+          label: () => 'YOTK · 鸿蒙工作台',
+        }, function HmosSettingsSection() {
+          // 席位所有者只共享 `close`；本卡片既不需要它，也不消费宿主可选的 `form`
+          // prop——取值仍走唯一那条已解析的传输。所以这里就是行席位 `view === 'page'`
+          // 的那次渲染，包括 `defaultOpen: true`：整页只有这一张卡片。
+          return React.createElement(HmosSettingsCard, { getScope: getSettingsScope, onScopeArrival: onSettingsScopeArrival, api: connectionApi, defaultOpen: true })
+        }))
+        return disposeSettingsSection
+      }
+      ctx.inject(['slots'], registerSettingsSection)
 
       // 拖拽可能跨 apply 生命周期：插件在拖拽中途 unload/update 时，
       // ctx.effect cleanup 兜底强制结束仍在飞行的 document 拖拽并恢复 body 状态。
@@ -865,6 +897,7 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
       return () => {
         try { disposeOverlay() } catch {}
         try { if (disposeCard) disposeCard() } catch {}
+        try { if (disposeSettingsSection) disposeSettingsSection() } catch {}
       }
     }
 

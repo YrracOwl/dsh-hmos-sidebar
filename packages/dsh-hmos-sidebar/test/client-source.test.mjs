@@ -285,15 +285,19 @@ function fakeCtx() {
     services: {},
     slotNames: [],
     registrations: [],
+    // 插件真正释放掉的席位注册 disposer，按名称记录：这样测试能证明注册确实加入了
+    // 插件的释放路径（register → slots.inject 的返回值 → apply 的联合 disposer）。
+    disposals: [],
     effectCleanups: [],
     slots: {
       inject(name, callback) {
         ctx.slotNames.push(name)
-        callback()
-        return () => {}
+        const dispose = callback()
+        return typeof dispose === 'function' ? dispose : () => {}
       },
       register(options) {
         ctx.registrations.push(options)
+        return () => { ctx.disposals.push(options.name) }
       },
     },
     get(name) { return lookup(name) },
@@ -558,11 +562,12 @@ test('the settings card carries the late-transport contract in source', () => {
   assert.match(source, /if \(!onScopeArrival\) return undefined/)
   assert.match(source, /return onScopeArrival\(\(\) => setTick\(\(n\) => n \+ 1\)\)/)
   assert.match(source, /const onScopeArrival = typeof props\.onScopeArrival === 'function'/)
-  // 两张席位都要拿到同一个通知器（≤0.1.5 的 settings.plugin.item 与 rc.2 的行席位）。
+  // 三张席位都要拿到同一个通知器（≤0.1.5 的 settings.plugin.item、rc.2 的行席位，
+  // 以及附加的 settings.section 页）。
   assert.equal(
     (source.match(/onScopeArrival: onSettingsScopeArrival/g) || []).length,
-    2,
-    'both seats must pass the arrival notifier',
+    3,
+    'every card seat must pass the arrival notifier',
   )
   // 5. 释放路径必须存在：卡片实例退订 + 插件卸载/更新时 apply 兜底清空。
   assert.match(source, /ctx\.effect\(\(\) => \(\) => \{ settingsScopeWaiters\.clear\(\) \}, 'dsh-hmos-sidebar: settings scope waiters'\)/)
@@ -823,7 +828,9 @@ function mountRowConfigCard() {
 function openCard(react) {
   const header = byClass(react.tree(), 'dhssHeader')
   assert.equal(header.length, 1, 'the card header must always render')
-  header[0].props.onClick()
+  // 单卡片席位（行席位的 page 视图 / settings.section 页）现在默认就展开，所以这里
+  // 只保证「正文可见」，不假定初始折叠状态——手动收起/展开仍由表头按钮驱动。
+  if (header[0].props['aria-expanded'] !== true) header[0].props.onClick()
   return react.tree()
 }
 
@@ -942,4 +949,108 @@ test('the arrival mechanism is disposed: unsubscribe and the unload cleanup both
   second.onScopeArrival(() => fresh.push(1))
   second.ctx.provide('configForms', { get: () => scopeController({ status: 'loading', mode: 'host' }) })
   assert.deepEqual([stale.length, fresh.length], [0, 1], 'the unload cleanup dropped every waiter apply owned')
+})
+
+// ---------------------------------------------------------------------------
+// 附加席位：settings.section（设置里的一级页面）。
+//
+// 0.1.7-rc.2 在带键的行席位之外还声明根级列表槽位 `settings.section`（"一个列表项 =
+// 一个设置页"）。这个注册是「附加」的，绝不能门控插件：席位依赖宿主版本，用与行席位
+// 完全相同的非门控 `ctx.inject(['slots'], …)` 形状等待，回调返回注册 disposer。该页
+// 渲染的就是行席位 `view === 'page'` 渲染的那张 HmosSettingsCard——一套设置 UI、
+// 一条传输、一条持久化路径。
+// ---------------------------------------------------------------------------
+
+test('additive settings.section seat carries the exact nav identity', () => {
+  assert.match(source, /const registerSettingsSection = \(sctx\) => /)
+  assert.match(source, /sctx\.slots\.inject\('settings\.section', \(\) => sctx\.slots\.register\(\{/)
+  assert.match(source, /name: 'settings\.section'/)
+  assert.match(source, /id: 'yotk-hmos-sidebar'/)
+  assert.match(source, /order: 64/)
+  // label 是 THUNK：外壳每次投影都重新读取，而不是缓存注册方本地化的文本。
+  assert.match(source, /label: \(\) => 'YOTK · 鸿蒙工作台'/)
+  // 从非门控的 slots 等待里注册，回调返回的 disposer 加入插件的既有释放路径。
+  assert.match(source, /ctx\.inject\(\['slots'\], registerSettingsSection\)/)
+  assert.match(source, /disposeSettingsSection = sctx\.slots\.inject\('settings\.section'/)
+  assert.match(source, /if \(disposeSettingsSection\) disposeSettingsSection\(\)/)
+  // 席位只声明 { id, order, label }——不发明契约键。
+  assert.doesNotMatch(source, /name: 'settings\.section',\s*\n\s*locale:/)
+})
+
+test('settings.section fires without any settings transport and never gates', () => {
+  const { apply } = loadClientDragApi()
+  // 有卡片席位、但完全没有设置传输的宿主：席位注册仍必须触发（非门控），与行席位一致。
+  const ctx = fakeCtx()
+  ctx.services = { slots: () => ({}) }
+  const dispose = apply(ctx)
+  const section = ctx.registrations.find((r) => r.name === 'settings.section')
+  assert.ok(section, 'the settings.section occupant must register where the seat is declared')
+  // 席位声明的契约键恰好是 { id, order, label }（外加 slots 服务要求的 name）。
+  assert.deepEqual(Object.keys(section).sort(), ['id', 'label', 'name', 'order'])
+  assert.equal(section.id, 'yotk-hmos-sidebar')
+  assert.equal(section.order, 64)
+  assert.equal(typeof section.label, 'function')
+  assert.equal(section.label(), 'YOTK · 鸿蒙工作台')
+  // 没有传输 → 旧席位（settings.plugin.item）正确地什么都不注册。
+  assert.equal(ctx.registrations.filter((r) => r.name === 'settings.plugin.item').length, 0)
+  // 注册由插件拥有：释放之前没有任何注册 disposer 被调用。
+  assert.deepEqual(ctx.disposals, [], 'nothing is released before the plugin is disposed')
+  dispose()
+  assert.ok(ctx.disposals.includes('settings.section'), 'the callback disposer joins the plugin disposal path')
+
+  // 不声明该席位的宿主：什么都不注册，apply 照常成功——席位永远不能门控激活。
+  const absent = fakeCtx()
+  assert.equal(typeof apply(absent), 'function')
+  assert.equal(absent.registrations.some((r) => r.name === 'settings.section'), false)
+  assert.doesNotMatch(source, /exports\.inject = \[[^\]]*settings\.section/)
+})
+
+test('the settings.section page renders the same card component as the row page', () => {
+  // 一张卡片、一套传输：附加页面与行席位的 page 视图必须是同一个组件，都只拿
+  // 「读取器 + 展开默认」，既不消费宿主可选的 `form`，也不消费席位的 `close`。
+  const api = loadClientRenderApi()
+  api.ctx.provide('configForms', {
+    get: () => scopeController({
+      status: 'ready', value: {}, base: {}, user: {}, revision: 1, writable: true, mode: 'host',
+    }),
+  })
+  api.apply(api.ctx)
+  function seat(name) {
+    const index = api.ctx.registrations.findIndex((registration) => registration.name === name)
+    assert.ok(index >= 0, `expected a ${name} occupant`)
+    return { options: api.ctx.registrations[index], component: api.ctx.components[index] }
+  }
+  const section = seat('settings.section')
+  const row = seat('plugins.row.config')
+  const legacy = seat('settings.plugin.item')
+
+  const sectionPage = section.component({ close: () => {} })
+  const rowPage = row.component({ view: 'page' })
+  assert.equal(typeof sectionPage.type, 'function')
+  assert.equal(sectionPage.type, rowPage.type, 'the section page renders the row page component')
+  // 两类单卡片页面都要求展开；宿主可选的 `form` prop 不被消费。
+  assert.deepEqual(Object.keys(sectionPage.props).sort(), ['api', 'defaultOpen', 'getScope', 'onScopeArrival'])
+  assert.deepEqual(Object.keys(rowPage.props).sort(), ['api', 'defaultOpen', 'getScope', 'onScopeArrival'])
+  assert.equal(sectionPage.props.defaultOpen, true)
+  assert.equal(rowPage.props.defaultOpen, true)
+  const passedForm = section.component({ close: () => {}, form: { state: {}, mutate() {} } })
+  assert.equal(passedForm.type, sectionPage.type)
+  assert.deepEqual(Object.keys(passedForm.props).sort(), ['api', 'defaultOpen', 'getScope', 'onScopeArrival'])
+  // 行席位的 summary 分支仍是它的一行文字。
+  assert.equal(row.component({ view: 'summary' }).type, 'span')
+  // 旧列表席位是同一张卡片，但保持折叠默认（不传 defaultOpen）。
+  const legacyPage = legacy.component({})
+  assert.equal(legacyPage.type, sectionPage.type)
+  assert.equal('defaultOpen' in legacyPage.props, false, 'the legacy list seat keeps its collapsed default')
+
+  // 行为验证：附加页面挂载即展开，表头按钮仍能手动收起；旧列表卡片挂载后保持折叠。
+  const react = api.react
+  react.mount(react.createElement(section.component, {}))
+  assert.equal(byClass(react.tree(), 'dhssBody').length, 1, 'the settings.section page mounts expanded')
+  byClass(react.tree(), 'dhssHeader')[0].props.onClick()
+  assert.equal(byClass(react.tree(), 'dhssBody').length, 0, 'the header still folds it back up')
+  react.unmount()
+  react.mount(react.createElement(legacy.component, {}))
+  assert.equal(byClass(react.tree(), 'dhssBody').length, 0, 'the legacy list card stays collapsed')
+  react.unmount()
 })
