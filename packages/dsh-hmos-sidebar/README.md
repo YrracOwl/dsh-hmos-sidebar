@@ -2,7 +2,7 @@
 
 ## English
 
-**Current release: 0.3.15** — Both bundled presets now ship in the two shapes DSH actually asks for: the ≤ 0.1.5 **directory** preset (`presets/<id>/`) and the ≥ 0.1.7-rc.1 **declaration** (`presets/<id>.declarative.yml`, one `@deepseek-ai/dsh-agent-preset` row). `install-presets` resolves `@deepseek-ai/dsh-agent-preset` from the profile to decide which one to install, so a DSH upgrade no longer silently drops the presets. On ≥ 0.1.7 nothing is copied into `$DSH_HOME`: the declaration stays in the package, and one small managed block in the profile's `cordis.patch.yml` mounts it with `cordis:include`. 0.3.14 carried the portable settings transport (`settingsScope` ≤ 0.1.5 / `configForms` ≥ 0.1.7-rc.1).
+**Dual-shape presets** — Both bundled presets now ship in the two shapes DSH actually asks for: the ≤ 0.1.5 **directory** preset (`presets/<id>/`) and the ≥ 0.1.7-rc.1 **declaration** (`presets/<id>.declarative.yml`, one `@deepseek-ai/dsh-agent-preset` row). `install-presets` resolves `@deepseek-ai/dsh-agent-preset` from the profile to decide which one to install, so a DSH upgrade no longer silently drops the presets. On ≥ 0.1.7 nothing is copied into `$DSH_HOME`: the declaration stays in the package, and one small managed block in the profile's `cordis.patch.yml` mounts it with `cordis:include`. 0.3.14 carried the portable settings transport (`settingsScope` ≤ 0.1.5 / `configForms` ≥ 0.1.7-rc.1).
 
 A Windows-only HarmonyOS development workbench for DeepSeek Harness Web. One package bundles the Host RPC, 41 `dcli__*` tools, floating Web UI, and two installable HarmonyOS agent presets: `native-harmonyos` and `liangshen-native-harmonyos`. The Liangshen preset uses a capability-detected compatibility layer: DSH 0.1.2+ uses `session.snapshotEvents()`, while older RC releases fall back to `session.events`.
 
@@ -10,7 +10,7 @@ Install with `dsh plugin --profile web add dsh-hmos-sidebar`, then run `npx --ye
 
 ## 中文
 
-> 0.3.15 预设双形态预适配：DSH 0.1.7-rc.1 移除了目录型 preset roster，改为在 profile patch 中用 `@deepseek-ai/dsh-agent-preset` 声明 identity + 子插件列表。两个内置预设现在各有两个**逐行等价**的 payload（`presets/<id>/` 与 `presets/<id>.declarative.yml`），`install-presets` 按 profile 能否解析该包自动选择：≤ 0.1.5 仍复制目录，≥ 0.1.7 改为写托管块 + `cordis:include`。改写中只保留 rc.1 强制的三处差异：`@deepseek-ai/dsh-workflow-worker-thread` → `@deepseek-ai/dsh-workflow-ptc`（上游无别名，行 id 同步改为 `workflow-ptc`）、技能目录改由 `createRequire(baseUrl).resolve('dsh-hmos-sidebar/package.json')` 定位、两个 preset 本目录模块改为 package 子路径导出。
+> 预设双形态预适配：DSH 0.1.7-rc.1 移除了目录型 preset roster，改为在 profile patch 中用 `@deepseek-ai/dsh-agent-preset` 声明 identity + 子插件列表。两个内置预设现在各有两个**逐行等价**的 payload（`presets/<id>/` 与 `presets/<id>.declarative.yml`），`install-presets` 按 profile 能否解析该包自动选择：≤ 0.1.5 仍复制目录，≥ 0.1.7 改为写托管块 + `cordis:include`。改写中只保留 rc.1 强制的三处差异：`@deepseek-ai/dsh-workflow-worker-thread` → `@deepseek-ai/dsh-workflow-ptc`（上游无别名，行 id 同步改为 `workflow-ptc`）、技能目录改由 `createRequire(baseUrl).resolve('dsh-hmos-sidebar/package.json')` 定位、两个 preset 本目录模块改为 package 子路径导出。
 >
 > 0.3.12 预设挂载修复：`@deepseek-ai/dsh-persona` 自 DSH 0.1.5-rc.1 起把 persona 配置改为**必填** `prefix`（旧 `text` 键被删除，且报 `$.prefix missing required value` 导致预设无法切换），persona 提示段名也从 `deployment:persona` 拆为 `deployment:persona-prefix` / `deployment:persona-suffix`；两个内置预设与 `tool-bootstrap.mjs` 的段名白名单已同步。0.3.11 含同一修复但未发布成功（其发布跑因新契约测试的行尾假设在 CRLF 检出的 runner 上失败）。
 >
