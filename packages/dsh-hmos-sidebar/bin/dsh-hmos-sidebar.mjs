@@ -21,8 +21,10 @@ export const HOST_MODES = ['auto', 'directory', 'declarative']
 export const DECLARATIVE_PROBE = '@deepseek-ai/dsh-agent-preset'
 
 /**
- * Marker lines this installer owns inside a profile patch. Everything between
- * them is generated; text outside them is user content and is never rewritten.
+ * Marker lines this installer owns inside a profile patch. Between them it owns
+ * exactly the `hmos-preset-*` rows it wrote — every other line, including rows
+ * of other plugins that ended up inside the block, is user content and is
+ * preserved verbatim. Text outside the markers is never rewritten.
  */
 export const MANAGED_BEGIN = '# >>> dsh-hmos-sidebar presets (managed block: do not edit inside; refresh with `dsh-hmos-sidebar install-presets --force`)'
 export const MANAGED_END = '# <<< dsh-hmos-sidebar presets'
@@ -239,28 +241,114 @@ function codeLines(text) {
     })
 }
 
+/** A row this installer owns, at any indentation: the include row of one preset. */
+const OWNED_ROW = /^([ \t]*)-[ \t]+id:[ \t]*["']?(hmos-preset-[^ \t"'#]+)["']?[ \t]*(?:#.*)?$/
+
+/** A YAML `insert:` list head, at any indentation. */
+const INSERT_HEAD = /^([ \t]*)-[ \t]+insert:[ \t]*(?:#.*)?$/
+
+function indentOf(line) {
+  return line.length - line.trimStart().length
+}
+
+/**
+ * Drop the rows this installer owns, keeping everything else in the region.
+ *
+ * A row is owned by its id alone, so a stale row from an older preset set is
+ * removed even when a user edited its body, while a `cordis:include` row of
+ * another plugin — same shape, different id — survives untouched.
+ */
+function stripOwnedRows(regionLines) {
+  const kept = []
+  let index = 0
+  while (index < regionLines.length) {
+    const line = regionLines[index]
+    if (OWNED_ROW.exec(line) === null) {
+      kept.push(line)
+      index += 1
+      continue
+    }
+    const indent = indentOf(line)
+    index += 1
+    // A row consumes the deeper-indented lines that follow it; a blank line or
+    // any line at or above its own indentation ends the row.
+    while (index < regionLines.length) {
+      const next = regionLines[index]
+      if (next.trim() === '' || indentOf(next) <= indent) break
+      index += 1
+    }
+  }
+  return kept
+}
+
+/**
+ * Drop an `insert:` head that has no children left, whichever way it lost them:
+ * an `insert:` with no rows is a childless patch entry, so it must not survive
+ * either a refresh that removed our rows or a hand-edited block.
+ */
+function keepForeignLines(lines) {
+  const kept = []
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]
+    const head = INSERT_HEAD.exec(line)
+    if (head === null) {
+      kept.push(line)
+      continue
+    }
+    const indent = head[1].length
+    let hasChild = false
+    for (let next = index + 1; next < lines.length; next++) {
+      if (lines[next].trim() === '') continue
+      hasChild = indentOf(lines[next]) > indent
+      break
+    }
+    if (hasChild) kept.push(line)
+  }
+  return kept
+}
+
 /**
  * Merge the managed block into an existing patch document.
  *
  * A profile patch is a top-level YAML array. The empty document is written as
  * `[]`, which cannot simply be appended to, so that single line is replaced.
  * Everything else — the user's comments, blank lines, and their own entries —
- * is preserved verbatim, and a document that already carries the markers has
- * only the marked region replaced.
+ * is preserved verbatim.
+ *
+ * Inside an existing marker pair the installer replaces ONLY its own
+ * `hmos-preset-*` rows and appends any that are missing; every other line of
+ * the marked region is kept byte-for-byte. That matters because DSH's own
+ * config editor appends new entries at the end of the patch document, which is
+ * inside the marked block whenever the block is the last thing in the file: a
+ * whole-region replace would silently delete the user's freshly configured
+ * rows on the next `--force` run.
  */
 export function mergeManagedBlock(existing, block) {
   const eol = existing.includes('\r\n') ? '\r\n' : '\n'
   // Match the document's own line endings: a Windows checkout of the profile
   // patch is CRLF, and splicing LF lines into it would leave a mixed file.
   const blockText = eol === '\n' ? block : block.split('\n').join(eol)
+  const blockLines = block.split('\n')
+  if (blockLines[0] !== MANAGED_BEGIN || blockLines[blockLines.length - 1] !== MANAGED_END) {
+    throw new Error('托管块内容缺少首尾标记行：拒绝合并')
+  }
+  const owned = blockLines.slice(1, -1)
   const begin = existing.indexOf(MANAGED_BEGIN)
   const end = existing.indexOf(MANAGED_END)
   if (begin !== -1 || end !== -1) {
     if (begin === -1 || end === -1 || end < begin) {
       throw new Error('profile patch 中的 dsh-hmos-sidebar 托管块标记不完整：请人工修复（补齐或删除孤立标记）后再运行')
     }
-    const after = end + MANAGED_END.length
-    return { text: existing.slice(0, begin) + blockText + existing.slice(after), replaced: true }
+    const beginLineEnd = existing.indexOf('\n', begin)
+    const regionStart = beginLineEnd + 1
+    const regionEnd = existing.lastIndexOf('\n', end) + 1
+    if (beginLineEnd === -1 || regionEnd < regionStart) {
+      throw new Error('profile patch 中的 dsh-hmos-sidebar 托管块标记不在独立行上：请人工修复后再运行')
+    }
+    const region = existing.slice(regionStart, regionEnd)
+    const kept = keepForeignLines(stripOwnedRows(region.split(/\r?\n/)))
+    const merged = [...owned, ...kept].join(eol)
+    return { text: existing.slice(0, regionStart) + merged + existing.slice(regionEnd), replaced: true }
   }
 
   const lines = existing.split(/\r?\n/)

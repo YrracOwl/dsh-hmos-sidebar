@@ -225,12 +225,15 @@ test('mergeManagedBlock appends to a document that already carries entries', () 
   assert.match(result.text, /- id: subagent-conductor\n  disabled: false\n\n# >>> dsh-hmos-sidebar presets/)
 })
 
-test('mergeManagedBlock owns only its marked region and preserves CRLF', () => {
+test('mergeManagedBlock owns only its own rows inside the marked region and preserves CRLF', () => {
   const original = [
     '# keep me',
     MANAGED_BEGIN,
     '- insert:',
-    '    - id: stale-row',
+    '    - id: hmos-preset-retired # 上一版留下',
+    '      name: cordis:include',
+    '    - id: other-plugin-include',
+    '      name: cordis:include',
     MANAGED_END,
     '- id: tail',
     '  disabled: false',
@@ -238,10 +241,60 @@ test('mergeManagedBlock owns only its marked region and preserves CRLF', () => {
   ].join('\r\n')
   const result = mergeManagedBlock(original, renderManagedBlock())
   assert.equal(result.replaced, true)
-  assert.doesNotMatch(result.text, /stale-row/, 'the previously generated rows are regenerated')
+  assert.doesNotMatch(result.text, /hmos-preset-retired/, 'a retired row of ours is regenerated away')
+  assert.match(
+    result.text,
+    /^ {4}- id: other-plugin-include\r\n {6}name: cordis:include\r\n/m,
+    'a foreign child of the same insert list survives',
+  )
   assert.match(result.text, /^# keep me\r\n/)
   assert.match(result.text, /- id: tail\r\n  disabled: false\r\n$/)
   assert.equal(/[^\r]\n/.test(result.text), false, 'no lone LF inside a CRLF document')
+})
+
+test('mergeManagedBlock preserves entries the config editor appended inside the block', () => {
+  // The live failure mode: DSH's config editor appends new patch entries at the
+  // END of the document, which is inside the marked region whenever the managed
+  // block is the last thing in the file. A whole-region replace deleted them.
+  const blockLines = renderManagedBlock().split('\n')
+  const foreign = [
+    '- id: agent-default-model',
+    '  name: "@deepseek-ai/dsh-agent-default-model"',
+    '  config:',
+    '    provider: pipio-chat',
+    '- id: tool-adapt',
+    '  name: dsh-tool-adapt',
+  ]
+  const original = [...blockLines.slice(0, -1), ...foreign, MANAGED_END, ''].join('\n')
+  const result = mergeManagedBlock(original, renderManagedBlock())
+  assert.equal(result.replaced, true)
+  assert.equal(result.text, original, 'an already-canonical block must not rewrite a single byte')
+  assert.equal((result.text.match(/id: hmos-preset-native-harmonyos/g) || []).length, 1)
+  assert.equal((result.text.match(/id: hmos-preset-liangshen-native-harmonyos/g) || []).length, 1)
+  assert.equal(mergeManagedBlock(result.text, renderManagedBlock()).text, result.text, 'the merge is idempotent')
+})
+
+test('mergeManagedBlock re-adds missing preset rows without touching foreign ones', () => {
+  const original = [MANAGED_BEGIN, '- id: tool-adapt', '  name: dsh-tool-adapt', MANAGED_END, ''].join('\n')
+  const result = mergeManagedBlock(original, renderManagedBlock())
+  assert.match(result.text, /^- insert:$/m)
+  assert.match(
+    result.text,
+    /- id: tool-adapt\n {2}name: dsh-tool-adapt\n# <<< dsh-hmos-sidebar presets\n$/,
+    'the foreign entry keeps its place at the end of the region',
+  )
+  assert.equal((result.text.match(/^- insert:$/gm) || []).length, 1)
+})
+
+test('mergeManagedBlock never leaves a childless insert head behind', () => {
+  const blockLines = renderManagedBlock().split('\n')
+  const result = mergeManagedBlock([...blockLines, ''].join('\n'), renderManagedBlock(PRESET_IDS))
+  assert.equal(/- insert:\n# <<</.test(result.text), false)
+  assert.match(result.text, /^ {4}- id: hmos-preset-native-harmonyos$/m)
+})
+
+test('mergeManagedBlock refuses a block without its marker lines', () => {
+  assert.throws(() => mergeManagedBlock('- id: x\n', '- insert:\n    - id: hmos-preset-native-harmonyos\n'), /缺少首尾标记行/)
 })
 
 test('mergeManagedBlock refuses a half-written marker pair instead of guessing', () => {
@@ -335,5 +388,40 @@ test('declarative install preserves a CRLF profile patch', () => {
     assert.equal(/[^\r]\n/.test(text), false, 'no lone LF inside a CRLF document')
     assert.match(text, /^- id: subagent-conductor\r\n/m)
     assert.match(text, /^- insert:\r\n/m)
+  } finally { f.dispose() }
+})
+
+test('a --force refresh keeps rows the config editor appended inside the managed block', () => {
+  const f = profileFixture({ patch: '# note\n[]\n' })
+  try {
+    const first = installPresetsDeclarative({
+      profileDir: f.profile,
+      presets: PRESET_IDS,
+      now: new Date('2026-01-02T03:04:05.000Z'),
+    })
+    // What DSH's config editor does to a patch whose managed block is last: the
+    // new entry lands between the preset rows and the closing marker.
+    const installed = fs.readFileSync(first.target, 'utf8')
+    const appended = installed.replace(MANAGED_END, [
+      '- id: subagent-conductor',
+      '  name: dsh-subagent-conductor',
+      '  config:',
+      '    defaultRoute:',
+      '      provider: goat-163',
+      '',
+      MANAGED_END,
+    ].join('\n'))
+    assert.notEqual(appended, installed)
+    fs.writeFileSync(first.target, appended)
+
+    const again = installPresetsDeclarative({
+      profileDir: f.profile,
+      presets: PRESET_IDS,
+      force: true,
+      now: new Date('2026-01-02T03:05:05.000Z'),
+    })
+    assert.equal(again.unchanged, true, 'a canonical refresh must not churn the file')
+    assert.equal(again.backup, null, 'an unchanged file is not rewritten, so there is nothing to back up')
+    assert.equal(fs.readFileSync(again.target, 'utf8'), appended, 'the appended row survives byte for byte')
   } finally { f.dispose() }
 })

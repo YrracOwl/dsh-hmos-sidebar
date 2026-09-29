@@ -86,7 +86,7 @@ pnpm exec dsh-hmos-sidebar install-presets --all
 | ≥ 0.1.7-rc.1 | `presets/<id>.declarative.yml`（`@deepseek-ai/dsh-agent-preset` 声明行） | 在 profile 的 `cordis.patch.yml` 写入一段托管块，用 `cordis:include` 挂载包内声明文件 |
 
 - ≥ 0.1.7 时**不往 `$DSH_HOME` 复制任何文件**：声明留在包内，`dsh plugin` 升级包即刷新预设，无需重跑安装器（重跑只会显示「已是最新」）。
-- 托管块由 `# >>>` / `# <<<` 标记行界定，块外内容（含你自己的注释与条目）**一律不动**；修改 `cordis.patch.yml` 前总是先写带时间戳的备份，且经同目录临时文件原子替换。
+- 托管块由 `# >>>` / `# <<<` 标记行界定，块外内容（含你自己的注释与条目）**一律不动**；块内也只替换安装器自己写的 `hmos-preset-*` 行，其余行逐字节保留——DSH 自己的配置编辑器会把新条目追加到补丁文件末尾，托管块恰好也在末尾时那些条目就落在块内，`--force` 不会再把它们刷掉。修改 `cordis.patch.yml` 前总是先写带时间戳的备份，且经同目录临时文件原子替换。
 - 参数：`--dry-run` 只打印目标与将写入的内容；`--force` 刷新已存在的目标；`--preset <id>` 只装一个（装 `liangshen-native-harmonyos` 会自动带上 `native-harmonyos` —— 两者共用同一份技能库）；`--mode auto|directory|declarative` 强制形态；`--profile-dir DIR` 指定 profile 目录（默认当前目录）。
 - ≤ 0.1.5 升到 ≥ 0.1.7 后：旧目录副本不会再被新 roster 读取（不是报错，是静默消失），重跑一次安装器即写成声明式；`<DSH_HOME>/.agent-presets/` 下的旧目录可自行删除。
 - 完成后重启 DSH Profile（≥ 0.1.7 的 profile 补丁层受 HMR 监听，通常热重载即可，但 roster 重建以重启最稳）。
