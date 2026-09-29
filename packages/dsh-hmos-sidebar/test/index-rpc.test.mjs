@@ -414,10 +414,22 @@ test('fence allows loopback host with no origin when sec-fetch-site is same-orig
   assert.equal(fence(reqWith({ host: '[::1]:3080', 'sec-fetch-site': 'same-origin' })), true)
 })
 
-test('fence rejects loopback with no origin and cross-site sec-fetch', () => {
+test('fence rejects loopback with cross-site sec-fetch', () => {
   assert.equal(fence(reqWith({ host: '127.0.0.1:3080', 'sec-fetch-site': 'cross-site' })), false)
-  // 无 origin 且无 sec-fetch-site 的非浏览器探针拒绝
-  assert.equal(fence(reqWith({ host: '127.0.0.1:3080' })), false)
+})
+
+test('fence allows loopback with no origin and no sec-fetch (Desktop protocol proxy)', () => {
+  // DSH Desktop serves the page from `dsh-app://app` and its protocol handler forwards
+  // `/hmos/api/…` to the host server without Origin or Sec-Fetch-*; a browser page can
+  // never omit Sec-Fetch-Site on a fetch, so the cross-site case stays rejected above.
+  assert.equal(fence(reqWith({ host: '127.0.0.1:19387' })), true)
+  assert.equal(fence(reqWith({ host: 'localhost:19387' })), true)
+})
+
+test('fence allows the DSH Desktop renderer origin on a loopback host', () => {
+  assert.equal(fence(reqWith({ host: '127.0.0.1:19387', origin: 'dsh-app://app' })), true)
+  // the same scheme is still rejected when the Host is not loopback
+  assert.equal(fence(reqWith({ host: 'evil.example.com', origin: 'dsh-app://app' })), false)
 })
 
 test('fence matches same-origin Origin host:port exactly', () => {
@@ -429,9 +441,11 @@ test('fence matches same-origin Origin host:port exactly', () => {
   assert.equal(fence(reqWith({ host, origin: 'http://127.0.0.1:9999' })), false)
   // host 不同拒绝
   assert.equal(fence(reqWith({ host, origin: 'http://localhost:3080' })), false)
+  // 跨站页面即使 host 相同也拒绝
+  assert.equal(fence(reqWith({ host, origin: 'http://127.0.0.1:3080', 'sec-fetch-site': 'cross-site' })), false)
 })
 
-test('fence rejects non-http(s) origins even when host matches', () => {
+test('fence rejects foreign non-http(s) origins even when host matches', () => {
   assert.equal(fence(reqWith({ host: '127.0.0.1:3080', origin: 'ftp://127.0.0.1:3080' })), false)
   assert.equal(fence(reqWith({ host: '127.0.0.1:3080', origin: 'file:///x' })), false)
 })

@@ -122,8 +122,12 @@ const peerRange = pkg.peerDependencies['@deepseek-ai/dsh-tools']
 
 test('optional peer @deepseek-ai/dsh-tools uses the clear prerelease-safe OR range', () => {
   // Each prerelease line is explicitly opted into so npm can validate the
-  // migrated compatibility floor without silently excluding RC versions.
-  assert.equal(peerRange, '^0.1.0-rc.7 || ^0.1.1-0 || ^0.1.2-rc.1')
+  // migrated compatibility floor without silently excluding RC versions, and
+  // so every DSH line the plugin supports has its own branch. `dsh-app-boot`
+  // rejects a bundle when `semver.satisfies(runtimeVersion, thisRange, {
+  // includePrerelease: true })` is false for a `@deepseek-ai/dsh-*` peer name,
+  // which is why the released 0.1.x branches alone excluded the 0.2 host.
+  assert.equal(peerRange, '^0.1.0-rc.7 || ^0.1.1-0 || ^0.1.2-rc.1 || ^0.2.0-rc.1')
 })
 
 test('peer range covers the existing minimum 0.1.0-rc.7 and current DSH 0.1.1-rc.2', () => {
@@ -141,8 +145,17 @@ test('peer range stays open across the whole 0.1.1 prerelease line and released 
   }
 })
 
+test('peer range admits the 0.2 line the 0.2.0-rc.2 host gate evaluates', () => {
+  for (const v of [
+    '0.2.0-rc.1', '0.2.0-rc.2', '0.2.0-rc.10',
+    '0.2.0', '0.2.1',
+  ]) {
+    assert.equal(satisfiesRange(v, peerRange), true, v + ' must satisfy')
+  }
+})
+
 test('peer range rejects versions below the floor and the next major', () => {
-  for (const v of ['0.1.0-rc.6', '0.2.0-rc.1', '0.2.0']) {
+  for (const v of ['0.1.0-rc.6', '0.3.0-rc.1', '0.3.0']) {
     assert.equal(satisfiesRange(v, peerRange), false, v + ' must not satisfy')
   }
 })

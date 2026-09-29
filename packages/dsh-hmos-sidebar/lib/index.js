@@ -301,10 +301,13 @@ export function isLoopbackHostname(hostname) {
 }
 // 同源 fence：
 //   - Host 须为 loopback；
-//   - 浏览器 sec-fetch-site 若存在，仅允许 same-origin / same-site；
-//   - 有 Origin：仅 http/https 且 host:port 与 Host 完全一致；
-//   - 无 Origin（非浏览器探针或没有同源声明的浏览器请求）：必须同时带
-//     sec-fetch-site=same-origin/same-site，否则拒绝。
+//   - 浏览器 sec-fetch-site 若存在，拒绝 cross-site；
+//   - 有 Origin：http/https 须 host:port 与 Host 完全一致；DSH Desktop 渲染进程
+//     的自有 scheme `dsh-app:` 放行（Host 已限 loopback）；
+//   - 无 Origin：放行。浏览器对每个 fetch/XHR 都会附 Sec-Fetch-Site，跨站页面因此
+//     仍被上一条拒掉；而 Desktop 的协议代理把 `dsh-app://app/hmos/api/…` 转发到宿主
+//     HTTP 服务时恰好不带 Origin/sec-fetch-site —— 实测：桌面版面板的请求在旧实现下
+//     一律 403（带 `Origin: dsh-app://app` 也 403），于是整块工作台拿不到环境数据。
 export function fence(req) {
   const host = req.headers && req.headers.host
   if (!host) return false
@@ -312,16 +315,13 @@ export function fence(req) {
   try { hostUrl = new URL('http://' + host) } catch { return false }
   if (!isLoopbackHostname(hostUrl.hostname)) return false
   const secFetchSite = req.headers['sec-fetch-site']
-  if (secFetchSite && secFetchSite !== 'same-origin' && secFetchSite !== 'same-site') return false
+  if (secFetchSite === 'cross-site') return false
   const origin = req.headers.origin
-  if (origin === undefined) {
-    // 无 Origin：仅当浏览器明确声明同源才放行，否则拒绝非浏览器请求
-    return secFetchSite === 'same-origin' || secFetchSite === 'same-site'
-  }
+  if (origin === undefined) return true
   try {
     const o = new URL(origin)
-    if (o.protocol !== 'http:' && o.protocol !== 'https:') return false
-    return o.host === hostUrl.host
+    if (o.protocol === 'http:' || o.protocol === 'https:') return o.host === hostUrl.host
+    return o.protocol === 'dsh-app:'
   } catch { return false }
 }
 

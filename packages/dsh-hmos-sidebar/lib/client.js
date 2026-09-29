@@ -432,6 +432,7 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
       const [staged, setStaged] = React.useState({})
       const [saving, setSaving] = React.useState(false)
       const [failed, setFailed] = React.useState(false)
+      const [failedDetail, setFailedDetail] = React.useState('')
 
       React.useEffect(() => {
         // scope 已就绪：订阅它的快照（status / 值的变化都会重渲染）。
@@ -484,23 +485,40 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
       }
 
       async function save() {
-        if (!api || !api.settings || saving || !dirty || !writable) return
+        if (saving || !dirty || !writable) return
         setSaving(true)
         setFailed(false)
+        setFailedDetail('')
         try {
           const ops = plan.map((item) => (
             item.op === 'unset'
               ? { op: 'unset', path: item.path }
               : { op: 'set', path: item.path, value: item.value }
           ))
-          // 写地址与读地址同源：走廊上是入口 id `dsh-hmos-sidebar`，≤ 0.1.5 是命名空间。
-          const payload = { ns: settingsWriteNs, ops }
-          if (snap.revision !== undefined) payload.expectedRevision = snap.revision
-          const response = await api.settings.mutate(payload)
-          const ok = !!(response && response.result && response.result.ok)
+          // 写入必须走**解析出来的那个传输对象**：0.1.7-rc.2 的 ConfigForm 契约是
+          // `mutate(ops, expectedRevision)`（内部再调 remote.settings.mutate(namespace, ops, revision)，
+          // 失败返回 false 而不抛），≤ 0.1.5 的 SettingsScope 同样提供 mutate()。
+          // 旧实现改调 `props.api.settings.mutate({ ns, ops })`：0.2.0 的席位不传
+          // props.api（或签名不同），save() 于是要么静默 return、要么被 catch 吞掉——
+          // 表现就是"改了存不进去，且没有任何提示"。
+          let ok = false
+          if (scope && typeof scope.mutate === 'function') {
+            ok = (await scope.mutate(ops, snap.revision)) !== false
+          } else if (api && api.settings && typeof api.settings.mutate === 'function') {
+            const payload = { ns: settingsWriteNs, ops }
+            if (snap.revision !== undefined) payload.expectedRevision = snap.revision
+            const response = await api.settings.mutate(payload)
+            ok = !!(response && (response.ok === true || (response.result && response.result.ok)))
+          } else {
+            setFailedDetail('设置写入通道不可用：传输对象没有 mutate()，api.settings.mutate() 也不存在')
+            setFailed(true)
+            setSaving(false)
+            return
+          }
           if (ok) setStaged({})
           else setFailed(true)
-        } catch (_) {
+        } catch (error) {
+          setFailedDetail(String((error && error.message) || error).slice(0, 300))
           setFailed(true)
         }
         setSaving(false)
@@ -539,7 +557,7 @@ select.hmos-input option:disabled{color:color-mix(in srgb,var(--popup-text,#fff)
         available && !writable ? React.createElement('p', { className: 'dhssReadOnly', role: 'status' }, '本部署的设置为只读。') : null,
         fields,
         available ? React.createElement('div', { className: 'dhssFooter' },
-          failed ? React.createElement('p', { className: 'dhssFailed', role: 'status' }, '本部署没有接受这些值，已保留供你修改。') : null,
+          failed ? React.createElement('p', { className: 'dhssFailed', role: 'status' }, failedDetail ? ('保存失败：' + failedDetail) : '本部署没有接受这些值，已保留供你修改。') : null,
           React.createElement('button', {
             type: 'button',
             className: 'dhssDiscard',
