@@ -1195,11 +1195,19 @@ export function applyForPlatform(ctx, config, platform) {
     const inst = { closed: false, client: null, transport: null }
     // 不手工复制 process.env：SDK 的 StdioClientTransport 会用白名单默认环境合并我们
     // 注入的覆盖项（PROJECT_PATH/DEVECO_CLI_SKIP_VERSION_CHECK），避免整份拷贝。
+    // ELECTRON_RUN_AS_NODE 必须显式传入。桌面版宿主自己是 Electron 的 Node 模式进程
+    // （`DeepSeek Harness.exe --expose-internals …\dsh-desktop-host\lib\cli.js`），所以
+    // process.execPath 是 `DeepSeek Harness.exe` 而不是 node.exe；而 SDK 的
+    // StdioClientTransport 只用一份白名单环境（DEFAULT_INHERITED_ENV_VARS：APPDATA、
+    // PATH …）拼子进程环境，**不会**继承这个变量，于是 exe 按 Electron 应用模式启动，
+    // 永远不可能应答 MCP 协议：dcli__lsp_check 于是连接失败或一直挂着。显式加上它，
+    // exe 才以 Node 模式执行 cli.js（实测：加上后 initialize + tools/list 返回
+    // check,restart）。普通 node.exe 宿主会忽略该变量，因此两种宿主都安全。
     const transport = new McpStdioTransport({
       command: process.execPath,
       args: [e.CLI, 'serve', 'mcp'],
       cwd: projectPath,
-      env: { PROJECT_PATH: projectPath, DEVECO_CLI_SKIP_VERSION_CHECK: '1' },
+      env: { PROJECT_PATH: projectPath, DEVECO_CLI_SKIP_VERSION_CHECK: '1', ELECTRON_RUN_AS_NODE: '1' },
       stderr: 'pipe',
     })
     const client = new McpClient({ name: 'dcli-tools', version: '1' }, { capabilities: {} })

@@ -327,6 +327,18 @@ test('optional MCP SDK is loaded by a guarded dynamic import, never a static one
   assert.doesNotMatch(dcliToolsSource, /^\s*\(\{ (?:Client|StdioClientTransport) \} = /m)
 })
 
+test('the LSP stdio transport runs the host execPath in Node mode on an Electron host', () => {
+  // 回归守卫（桌面版实测）：宿主 process.execPath 是 `DeepSeek Harness.exe`，而 SDK 的
+  // StdioClientTransport 只继承白名单环境（DEFAULT_INHERITED_ENV_VARS），不会带上
+  // ELECTRON_RUN_AS_NODE；少了它 exe 按 Electron 应用模式启动，MCP 握手永远不会完成，
+  // dcli__lsp_check 连接失败或一直挂着。
+  assert.match(
+    dcliToolsSource,
+    /env: \{[^}]*PROJECT_PATH: projectPath[^}]*ELECTRON_RUN_AS_NODE: '1'[^}]*\}/,
+    'the LSP transport env must pass ELECTRON_RUN_AS_NODE beside PROJECT_PATH',
+  )
+})
+
 test('requireMcpSdk returns the injected constructors when the peer is available', () => {
   class FakeClient {}
   class FakeStdioTransport {}
