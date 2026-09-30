@@ -59,6 +59,36 @@ test('every tool and parameter description avoids absolute drive-letter paths (p
   }
 })
 
+test('descriptions cross-reference other dcli tools with their full dcli__ prefix', () => {
+  // A cross-reference written as a bare short name (`auth_status`) reads like a
+  // callable tool that does not exist: the model only ever sees `dcli__*` names,
+  // so it would answer with UNKNOWN_TOOL.
+  const descs = collectDescriptions()
+  assert.ok(descs.length > 0, 'at least one description collected, or this check proves nothing')
+  const shortNames = TOOLS.map((t) => t.name.replace(/^dcli__/, '')).sort((a, b) => b.length - a.length)
+  assert.ok(shortNames.every((n) => n.includes('_')), 'short names must stay distinguishable from prose')
+  for (const { where, text } of descs) {
+    for (const short of shortNames) {
+      // A prefixed occurrence can never match: `dcli__` ends in `_`, which the
+      // leading character class excludes.
+      assert.ok(!new RegExp(`(^|[^_a-zA-Z])${short}(?![_a-zA-Z])`).test(text),
+        `bare tool name "${short}" in ${where}: ${text}`)
+    }
+  }
+})
+
+test('descriptions name nothing this preset switched off', () => {
+  // Shared by both bundled presets, which select the `native` presentation and
+  // disable `tool-ralph`. `run_code` is the PTC transport and does not exist in a
+  // native catalog at all.
+  for (const { where, text } of collectDescriptions()) {
+    for (const gone of ['run_code', 'ralph']) {
+      assert.ok(!new RegExp(`(^|[^_a-zA-Z])${gone}(?![_a-zA-Z])`).test(text),
+        `"${gone}" is not callable in this preset but appears in ${where}: ${text}`)
+    }
+  }
+})
+
 test('clean references cross-check', () => {
   // 兼容旧断言：mcp server 别名与 serve mcp 字样不得出现在任何描述里
   for (const { where, text } of collectDescriptions()) {

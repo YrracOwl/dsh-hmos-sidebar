@@ -83,13 +83,13 @@
     compactionTools: [read, write, edit, glob, grep, todo_write, ask_user_question]
     deferredSources: [agent-instructions, skill-catalog]
     deferredGraceSteps: 1
-    promotedPresentation: ptc
+    promotedPresentation: native
     promotedPersonaText: >-
       你是一名原生鸿蒙（HarmonyOS）应用开发专家。
 
-      执行形态：PTC 模式——计划阶段用 plan mode（exit_plan_mode 提交完整计划），
-      追踪用 todo_write，编码用 PTC Mode：通过 PTC SDK 的 run_code 编写 TypeScript 程序组合多步操作
-      （一个程序内多次 SDK 工具调用，一次往返完成；SDK 覆盖全部工具，含 41 个 dcli__*）。
+      执行形态：计划阶段用 plan mode（exit_plan_mode 提交完整计划），
+      追踪用 todo_write，编码直接调用工具（读/改文件、终端，41 个 dcli__* 一并可见）；
+      一次编排多步子代理工作时用 workflow 工具。
 
       最高优先级规则：
       1. 修改 .ets / C/C++ 源码后必须先用 dcli__lsp_check 验证（files 传改动文件，projectPath 传工程根），诊断清零再继续；LSP 卡死时用 dcli__lsp_restart。
@@ -97,9 +97,10 @@
       3. 构建/运行/日志/文档优先走 dcli__* 工具；仅当能力尚未封装且任务确实需要时，才调用 devecocli 命令，并先用 --help 核对参数。
       4. 跨页面/新能力/要设备验收的特性按 sdd-feature（验收契约落盘 docs/feature-contracts/）；UI 功能用 dcli__build_project + dcli__install_hap 装到真机/模拟器，用 dcli__ui_layout/click/swipe/text 操作，配合 dcli__ui_screenshot 截图 + read_image 看图逐项验证界面与交互（改 .ets / C/C++ 后先 dcli__lsp_check 清零诊断再跑 UI）。
       5. API 用法不确定先查文档（hmos-doc-research / dcli__docs_search），禁止臆造。
-      6. 仅当用户明确要求 Ralph / 新鲜代理迭代时使用 ralph 工具；普通长任务用 goal，有限委派用 subagent。
+      6. 长任务用 create_goal 建立目标、update_goal 推进；有限委派用 subagent，
+         多步子代理编排用 workflow。
 
-      详细流程按需加载技能：native-harmonyos / arkui-state / arkui-api-quickref / hmos-ui-verify / sdd-feature / hmos-doc-research / hmos-debug-logs / hmos-build-sign-release / hmos-system-capabilities / hmos-agents-md / hmos-code-review / dcli-tools-reference。
+      详细流程按需加载技能：native-harmonyos / arkui-state / arkui-api-quickref / hmos-ui-verify / sdd-feature / hmos-doc-research / hmos-debug-logs / hmos-build-sign-release / hmos-system-capabilities / hmos-agents-md / hmos-code-review / hmos-version-bump / dcli-tools-reference。
     # phase1FirstCallInstruction: After your first reasoning block, before answering, make one tool call (for example run `pwd` through the shell or view a workspace file) and base your answer on its result.
 
 # Workspace instructions are quarantined by `tool-bootstrap` during phase 1
@@ -353,6 +354,7 @@
 
     - id: tool-ralph
       name: '@deepseek-ai/dsh-tool-ralph'
+      disabled: true
       config:
         subagentProvider: spawn
         maxRounds: 64

@@ -214,7 +214,7 @@ export const TOOLS = [
   },
   {
     name: 'dcli__generate_signature',
-    description: '自动生成应用签名材料并写入工程配置（devecocli signature generate）。需先 auth_status 确认已登录华为账号；调试签名缺失/失效时使用。',
+    description: '自动生成应用签名材料并写入工程配置（devecocli signature generate）。需先用 dcli__auth_status 确认已登录华为账号；调试签名缺失/失效时使用。',
     parameters: {},
     timeoutMs: 300000,
     buildArgs() { return ['signature', 'generate'] },
@@ -429,7 +429,7 @@ export const TOOLS = [
   },
   {
     name: 'dcli__docs_read',
-    description: '读取本地 HarmonyOS 文档全文（devecocli docs read，documentId 来自 docs_search 结果）。',
+    description: '读取本地 HarmonyOS 文档全文（devecocli docs read，documentId 来自 dcli__docs_search 结果）。',
     parameters: {
       documentId: { type: 'string', required: true, description: '文档 ID' },
     },
@@ -620,7 +620,7 @@ export const TOOLS = [
   },
   {
     name: 'dcli__ui_layout',
-    description: '检查设备屏幕 UI 节点树（devecocli ui layout）：查看控件结构/层级/坐标，配合 ui click --id 定位操作、验证界面元素存在。',
+    description: '检查设备屏幕 UI 节点树（devecocli ui layout）：查看控件结构/层级/坐标，配合 dcli__ui_click（传 id）定位操作、验证界面元素存在。',
     parameters: {
       device: s('目标设备名称或序列号'),
       id: s('布局节点 id（只查该节点）'),

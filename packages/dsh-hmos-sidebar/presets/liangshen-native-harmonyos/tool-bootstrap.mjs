@@ -15,17 +15,23 @@
  * `we` and no `let me`) or the `maxBootstrapSteps` fallback.
  * `promoteAfterFirstResponse` promotes a tool-less first response once it has
  * responded, and also releases an anchor-gated session when its first turn
- * ends (`turn/end`). With `promotedPresentation: ptc` the promoted catalog
- * is presented as PTC Mode: the wire shows a single `run_code` tool
- * backed by the generated SDK, switched at the step boundary so the current
- * step's native calls are never interrupted. `deferredSources` and
- * `deferredGraceSteps` delay selected injected message kinds (workspace
- * instructions, skill catalog) for a few steps after promotion.
+ * ends (`turn/end`).
+ *
+ * With `promotedPresentation: ptc` the promoted catalog is presented as PTC
+ * Mode: the wire shows a single `run_code` tool backed by the generated SDK,
+ * switched at the step boundary so the current step's native calls are never
+ * interrupted. The bundled Liangshen preset selects `native` (2026-09-30), so
+ * that switch does not fire there and the promoted catalog stays native; the
+ * option and its `native | ptc` validation stay, and the phase-1 quarantine and
+ * the promotion state machine are independent of the presentation.
+ * `deferredSources` and `deferredGraceSteps` delay selected injected message
+ * kinds (workspace instructions, skill catalog) for a few steps after promotion.
  *
  * COMPACTION (local addition, ported from the upstream compaction-epoch
  * semantics): a compaction rewrites the whole model-visible surface, so the
  * first post-compaction request is a "second first request". A
- * `compaction/end` event releases PTC Mode (the presentation disposer) and
+ * `compaction/end` event releases the presentation disposer (PTC Mode, when
+ * that mode was selected) and
  * resets the promotion state to the CONTROLLED phase — bootstrap pair plus
  * `compactionTools` (a core work set, default none) — until a NEW durable
  * promotion signal exists past that boundary. The reset lives both in the

@@ -64,9 +64,9 @@
           prefix: >-
             你是一名原生鸿蒙（HarmonyOS）应用开发专家，工作目录是 {{cwd}}（模型 {{model}}）。
 
-            执行形态：PTC 模式——计划阶段用 plan mode（exit_plan_mode 提交完整计划），
-            追踪用 todo_write，编码用 PTC Mode：通过 PTC SDK 的 run_code 编写 TypeScript 程序组合多步操作
-            （一个程序内多次 SDK 工具调用，一次往返完成；SDK 覆盖全部工具，含 41 个 dcli__*）。
+            执行形态：计划阶段用 plan mode（exit_plan_mode 提交完整计划），
+            追踪用 todo_write，编码直接调用工具（读/改文件、终端，41 个 dcli__* 一并可见）；
+            一次编排多步子代理工作时用 workflow 工具。
 
             最高优先级规则：
             1. 修改 .ets / C/C++ 源码后必须先用 dcli__lsp_check 验证（files 传改动文件，
@@ -78,13 +78,14 @@
                dcli__install_hap 装到真机/模拟器，用 dcli__ui_layout/click/swipe/text 操作，配合 dcli__ui_screenshot 截图 +
                read_image 看图逐项验证界面与交互（改 .ets / C/C++ 后先 dcli__lsp_check 清零诊断再跑 UI）。
             5. API 用法不确定先查文档（hmos-doc-research / dcli__docs_search），禁止臆造。
-            6. 仅当用户明确要求 Ralph / 新鲜代理迭代时使用 ralph 工具（每轮写明不可变目标
-               与完成标准）；普通长任务用 goal，有限委派用 subagent。
+            6. 长任务用 create_goal 建立目标、update_goal 推进；有限委派用 subagent，
+               多步子代理编排用 workflow。
 
             详细流程按需加载技能：native-harmonyos / arkui-state / arkui-api-quickref /
             hmos-ui-verify / sdd-feature / hmos-doc-research / hmos-debug-logs /
             hmos-build-sign-release / hmos-system-capabilities / hmos-agents-md /
             hmos-code-review（交付前代码审查：机器检查 + LLM 逐项审查 + 分级报告）/
+            hmos-version-bump /
             dcli-tools-reference（dcli__* 工具参数速查，调用前先查，避免臆造参数）。
 
       - id: agent-instructions
@@ -268,6 +269,7 @@
 
           - id: tool-ralph
             name: '@deepseek-ai/dsh-tool-ralph'
+            disabled: true
             config:
               subagentProvider: spawn
               maxRounds: 64
@@ -299,14 +301,21 @@
       - id: tool-hmos-tools
         name: 'dsh-hmos-sidebar/tools'
 
-      # ── presentation: PTC Mode ────────────────────────────────────────────
+      # ── presentation: native ──────────────────────────────────────────────
       #
-      # 鸿蒙开发以写代码为主，本预设把工具呈现为 PTC 模式：模型写 TypeScript 程序
-      # 经 run_code 一次执行多步操作，减少往返。注册表本身留在宿主平面，本行只声明
-      # 本预设的呈现方式，native 会话可与 PTC 会话同进程并存。
-      # 宿主组合已组装 PTC 运行时（0.1.7-rc.1 起为 @deepseek-ai/dsh-ptc-runtime-node），
-      # 故不会因缺运行时挂载失败。改为 both 可保留原生工具直呼 + run_code 并存。
+      # 2026-09-30: this preset used to declare PTC Mode. It now declares `native`
+      # explicitly, because the preset is a day-to-day HarmonyOS coding vertical:
+      # its loop is read a fragment → edit → run a test → read the result, where
+      # direct tool calls keep round trips short and failures attributable. PTC's
+      # payoff (one program performing many calls, with filtering/aggregation in
+      # between) belongs to bulk sweeps, and the shipped `ptc` preset covers those.
+      # Declaring the row is deliberate rather than dropping it: the deployment
+      # default could be anything, and one agent declares exactly one presentation.
+      # The `workflow-ptc` / `tool-workflow` rows above are the real tools here —
+      # under `native` the model calls them directly; under PTC alone it could only
+      # reach them through the generated SDK, nested inside `run_code`.
+      # Switch to `both` to serve native calls and `run_code` side by side.
       - id: tool-presentation
         name: '@deepseek-ai/dsh-agent-tool-presentation'
         config:
-          mode: ptc
+          mode: native

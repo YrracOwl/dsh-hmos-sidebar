@@ -228,7 +228,7 @@ test('Windows-only, exports, and tools-separation contracts unchanged', () => {
   assert.doesNotMatch(indexSource, /\.tools\.register/)
 })
 
-test('bundled HarmonyOS presets use the current ptc presentation identifier', () => {
+test('bundled HarmonyOS presets use the current native presentation identifier', () => {
   const nativeComposition = fs.readFileSync(
     path.join(packageRoot, 'presets', 'native-harmonyos', 'agent.cordis.yml'),
     'utf8',
@@ -242,8 +242,12 @@ test('bundled HarmonyOS presets use the current ptc presentation identifier', ()
     'utf8',
   )
 
-  assert.match(nativeComposition, /^\s+mode: ptc$/m)
-  assert.match(liangshenComposition, /^\s+promotedPresentation: ptc$/m)
+  // 2026-09-30: both presets are native coding verticals. The twin declares the
+  // presentation statically, Liangshen selects it through its bootstrap config —
+  // and that config still routes through the imperative `presentAs` switch, so
+  // the source contract below stays pinned even though `native` never fires it.
+  assert.match(nativeComposition, /^\s+mode: native$/m)
+  assert.match(liangshenComposition, /^\s+promotedPresentation: native$/m)
   assert.match(bootstrapSource, /tools\.presentAs\('ptc'\)/)
   assert.match(bootstrapSource, /promotedPresentation must be "native" or "ptc"/)
 
@@ -354,17 +358,20 @@ test('declarative payloads keep the current persona and presentation contracts',
     assert.doesNotMatch(flat, /(?:mode|promotedPresentation): code\b/, id + ': `code` is not a presentation identifier')
   }
 
-  // native-harmonyos declares PTC statically; the two dcli__* tool mounts and
-  // the presentation row are what make the shipped preset a PTC vertical.
+  // native-harmonyos declares `native` statically and keeps the presentation row
+  // explicit rather than dropping it, so the preset never inherits a deployment
+  // default it did not choose. The two dcli__* tool mounts make it the shipped
+  // HarmonyOS vertical.
   const native = declarativeSource('native-harmonyos')
-  assert.match(native, /^ {10}mode: ptc$/m)
+  assert.match(native, /^ {10}mode: native$/m)
   assert.match(native, /name: '@deepseek-ai\/dsh-agent-tool-presentation'/)
   assert.match(native, /name: 'dsh-hmos-sidebar\/tools'/)
 
   // Liangshen must NOT declare a static mode: rc.1's `tools.presentAs()` throws
-  // when the scope already has one, and the bootstrap owns the switch.
+  // when the scope already has one, and the bootstrap owns the (now unused)
+  // switch. Its config selects `native`, which the bootstrap validates.
   const liangshen = declarativeSource('liangshen-native-harmonyos')
-  assert.match(liangshen, /^ {10}promotedPresentation: ptc$/m)
+  assert.match(liangshen, /^ {10}promotedPresentation: native$/m)
   assert.doesNotMatch(liangshen, /- id: tool-presentation/, 'a static mode would conflict with tools.presentAs()')
   assert.match(liangshen, /name: 'dsh-hmos-sidebar\/presets\/liangshen-tool-bootstrap'/)
 })
@@ -485,4 +492,116 @@ test('the host Config loads and resolves on the installed schemastery line', asy
     'a row/patch config.cliPath must survive entry-Config validation',
   )
   assert.throws(() => host.Config({ cliPath: 123 }), /cliPath expected string/i)
+})
+
+// ---------------------------------------------------------------------------
+// Always-on prompt hygiene
+//
+// The persona is the KV-cache prefix and the model's standing attention budget.
+// Naming a tool the preset does not mount costs tokens AND invites an
+// `UNKNOWN_TOOL` call, so every stable name in that text must be real for THIS
+// preset. These guards cover the three ways that drifts: a `dcli__*` name that
+// left the tool module, a skill name that left the skills directory, and a name
+// belonging to a feature this preset switched off.
+// ---------------------------------------------------------------------------
+
+/** Read one `key:` value, whether inline or a `>-` block, by indentation. */
+function personaField(source, key) {
+  const lines = source.split('\n')
+  const out = []
+  const head = new RegExp(`^(\\s*)${key}:\\s*(.*)$`)
+  for (let i = 0; i < lines.length; i += 1) {
+    const match = head.exec(lines[i])
+    if (!match) continue
+    const indent = match[1].length
+    const inline = match[2].trim()
+    if (inline !== '' && inline !== '>-' && inline !== '>') {
+      out.push(inline)
+      continue
+    }
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const line = lines[j]
+      if (line.trim() === '') {
+        out.push('')
+        continue
+      }
+      if (line.length - line.trimStart().length <= indent) break
+      out.push(line.trim())
+    }
+  }
+  return out.join('\n')
+}
+
+/** The persona text each payload injects for the whole session. */
+function personaText(preset) {
+  const read = (file) => fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n')
+  const sources = [
+    read(path.join(packageRoot, 'presets', preset, 'agent.cordis.yml')),
+    read(path.join(packageRoot, 'presets', `${preset}.declarative.yml`)),
+  ]
+  const texts = sources.map((source) => [
+    personaField(source, 'prefix'),
+    personaField(source, 'promotedPersonaText'),
+  ].join('\n'))
+  for (const text of texts) assert.ok(text.trim().length > 0, preset + ': expected persona prompt text')
+  return texts
+}
+
+test('every dcli__* name in the always-on prompt exists in the tool module', () => {
+  const toolsSource = fs.readFileSync(path.join(packageRoot, 'lib', 'dcli-tools.mjs'), 'utf8')
+  const declared = new Set(
+    [...toolsSource.matchAll(/name:\s*'(dcli__[a-z_]+)'/g)].map((m) => m[1]),
+  )
+  assert.equal(declared.size, 41, 'the tool module should still declare 41 dcli__* tools')
+
+  for (const preset of ['native-harmonyos', 'liangshen-native-harmonyos']) {
+    for (const text of personaText(preset)) {
+      const mentioned = new Set([...text.matchAll(/\bdcli__[a-z_]+/g)].map((m) => m[0]))
+      // Guard against a vacuous pass: the persona does name these tools, so an
+      // empty extraction means the reader broke, not that the prompt is clean.
+      assert.ok(mentioned.size >= 5, `${preset}: expected the persona to name the dcli__* tools it uses`)
+      for (const name of mentioned) {
+        assert.ok(declared.has(name), `${preset}: persona names ${name}, which the tool module does not declare`)
+      }
+    }
+  }
+})
+
+test('every skill named in the always-on prompt exists in the skills directory', () => {
+  const skillsRoot = path.join(packageRoot, 'presets', 'native-harmonyos', 'skills')
+  const shipped = new Set(fs.readdirSync(skillsRoot, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name))
+
+  for (const preset of ['native-harmonyos', 'liangshen-native-harmonyos']) {
+    for (const text of personaText(preset)) {
+      const marker = '按需加载技能：'
+      const start = text.indexOf(marker)
+      assert.ok(start >= 0, preset + ': the persona must advertise its on-demand skills')
+      const rest = text.slice(start + marker.length)
+      const stop = rest.indexOf('。')
+      const names = (stop < 0 ? rest : rest.slice(0, stop))
+        .split('/')
+        .map((part) => part.replace(/（[^）]*）/g, '').trim())
+        .filter(Boolean)
+      assert.ok(names.length >= 10, preset + ': unexpectedly short skill list')
+      for (const name of names) {
+        assert.ok(shipped.has(name), `${preset}: persona advertises skill ${name}, which the package does not ship`)
+      }
+    }
+  }
+})
+
+test('the always-on prompt names nothing the native presets switched off', () => {
+  // Both presets select `native` and disable `tool-ralph`: `run_code` (the PTC
+  // transport) is not in a native catalog at all, so naming either would be a
+  // guaranteed UNKNOWN_TOOL.
+  for (const preset of ['native-harmonyos', 'liangshen-native-harmonyos']) {
+    for (const text of personaText(preset)) {
+      assert.doesNotMatch(text, /\brun_code\b/, preset + ': run_code does not exist under the native presentation')
+      assert.doesNotMatch(text, /PTC Mode|PTC 模式|PTC SDK/, preset + ': the persona still describes PTC execution')
+      assert.doesNotMatch(text, /\bralph\b/i, preset + ': tool-ralph is disabled in this preset')
+      // `goal` alone is not a tool: the plugin registers get_goal/create_goal/update_goal.
+      assert.doesNotMatch(text, /(?:^|[^_a-zA-Z])goal(?![_a-zA-Z])/i, preset + ': `goal` is not a tool name')
+      assert.match(text, /create_goal/, preset + ': goal work should name the real tool')
+    }
+  }
 })
