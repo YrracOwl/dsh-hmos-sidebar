@@ -32,9 +32,9 @@
 #      It is the SAME directory the twin uses (`../native-harmonyos/skills/`):
 #      the two presets share one skill catalog, which is why `install-presets`
 #      always installs `native-harmonyos` alongside this one.
-#   4. Product `tool-subagent` rows carry rc.1's config vocabulary
-#      (`backgroundMode: one-shot` + `maxDepth: provider-managed`). Both stay
-#      `disabled`.
+#   4. Product `tool-subagent` rows. DSH 0.2.1 removed the rc.1 vocabulary
+#      (`backgroundMode`, `enableRunInBackground`) from the Config outright, so
+#      both rows carry only `maxDepth: provider-managed` now. Both stay `disabled`.
 #   5. Display metadata from `preset.yml` is inline as `config.name` /
 #      `config.description` / `config.order`.
 #
@@ -113,6 +113,14 @@
         config:
           maxBytes: 65536
 
+      # ── time context ──────────────────────────────────────────────────────
+      #
+      # Renders today's date and clock into the prompt; a build/expiry/signing
+      # task is date-sensitive. Consumes a host registry only, so it needs no
+      # realm.
+      - id: time-context
+        name: '@deepseek-ai/dsh-time-context'
+
       # ── minimal phase-1 shell ─────────────────────────────────────────────
       #
       # The PTY registry is an agent-owned service, so it lives in an
@@ -187,6 +195,14 @@
       - id: tool-jobs
         name: '@deepseek-ai/dsh-tool-jobs'
 
+      # ── scheduled reminders ───────────────────────────────────────────────
+      #
+      # The schedule SERVICE and its UI stay on the host plane; this row gives
+      # the agent the model-facing create/list/cancel tools. Kept from
+      # `standard`.
+      - id: tool-schedule
+        name: '@deepseek-ai/dsh-tool-schedule'
+
       # ── skills ────────────────────────────────────────────────────────────
       #
       # Shared with the `native-harmonyos` twin — one skill catalog for both
@@ -207,6 +223,11 @@
       # host-plane because the Gateway serves the goal domain as Remotes.
       - id: tool-goal
         name: '@deepseek-ai/dsh-tool-goal'
+
+      # The `/goal` command itself: the tool is how the agent updates a goal, the
+      # command is how a person opens one without prose.
+      - id: command-goal
+        name: '@deepseek-ai/dsh-command-goal'
 
       # ── plan mode ─────────────────────────────────────────────────────────
       - id: planning
@@ -279,14 +300,12 @@
             config:
               provider: spawn
               toolName: subagent
-              backgroundMode: continuable
 
           - id: tool-subagent-fork
             name: '@deepseek-ai/dsh-tool-subagent'
             config:
               provider: fork
               toolName: subagent_fork
-              backgroundMode: continuable
 
           # Product providers are host-plane singletons. Remove `disabled` from
           # either row to expose that product to agents composed from a copy.
@@ -296,7 +315,6 @@
             config:
               provider: codex
               toolName: subagent_codex
-              backgroundMode: one-shot
               maxDepth: provider-managed
 
           - id: tool-subagent-claude-code
@@ -305,7 +323,6 @@
             config:
               provider: claude-code
               toolName: subagent_claude_code
-              backgroundMode: one-shot
               maxDepth: provider-managed
 
           - id: workflow-ptc
@@ -337,6 +354,21 @@
         config:
           fetch: false
           searchTimeoutMs: 60000
+
+      # Deliverables: hand the person an actual file instead of describing its path.
+      - id: present
+        name: '@deepseek-ai/dsh-tool-present'
+
+      # Plugin surface, `disabled` on purpose: an agent must not install or
+      # enable plugins behind the person's back. Declared so enabling either
+      # stays a one-line edit, matching `standard`.
+      - id: tool-plugin-manager
+        name: '@deepseek-ai/dsh-plugin-manager/tools'
+        disabled: true
+
+      - id: tool-plugin-market
+        name: '@deepseek-ai/dsh-plugin-market/tools'
+        disabled: true
 
       # Native HarmonyOS development tools, including the 41 dcli__* commands.
       - id: tool-hmos-tools

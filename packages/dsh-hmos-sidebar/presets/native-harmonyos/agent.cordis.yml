@@ -64,6 +64,15 @@
   config:
     maxBytes: 65536
 
+# ── time context ────────────────────────────────────────────────────────────
+
+# Renders today's date and clock into the prompt. Kept from `standard` because a
+# build/expiry/signing task is date-sensitive: without it the model has no
+# anchor for "is this certificate still valid" or "what does 'latest' mean
+# today". It consumes a host registry only, so it needs no realm.
+- id: time-context
+  name: '@deepseek-ai/dsh-time-context'
+
 # ── shell ───────────────────────────────────────────────────────────────────
 
 # `shell-env` stays in the HOST composition: `apps/cli/src/web.ts` injects it to
@@ -105,6 +114,14 @@
 - id: tool-jobs
   name: '@deepseek-ai/dsh-tool-jobs'
 
+# ── scheduled reminders ─────────────────────────────────────────────────────
+
+# The schedule SERVICE and its UI stay on the host plane; this row gives the
+# agent the model-facing create/list/cancel tools. Kept from `standard`: long
+# builds and on-device verification runs are exactly the work worth deferring.
+- id: tool-schedule
+  name: '@deepseek-ai/dsh-tool-schedule'
+
 # ── skills ──────────────────────────────────────────────────────────────────
 
 # The skill REGISTRY lives in the host composition and is layered per scope:
@@ -131,6 +148,12 @@
 # session. What a preset chooses is whether its agent can call the goal tool.
 - id: tool-goal
   name: '@deepseek-ai/dsh-tool-goal'
+
+# The `/goal` command itself. `standard` pairs it with the tool above: the tool
+# is how the agent updates a goal, the command is how a person opens one
+# without prose. Both stay host-plane consumers, so neither needs a realm.
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
 
 # ── plan mode ───────────────────────────────────────────────────────────────
 
@@ -223,14 +246,12 @@
       config:
         provider: spawn
         toolName: subagent
-        backgroundMode: continuable
 
     - id: tool-subagent-fork
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
         provider: fork
         toolName: subagent_fork
-        backgroundMode: continuable
 
     # Product providers are host-plane singletons. Copy this preset, then
     # remove `disabled` from either ordinary tool row to expose that product
@@ -241,7 +262,6 @@
       config:
         provider: codex
         toolName: subagent_codex
-        enableRunInBackground: false
         maxDepth: provider-managed
 
     - id: tool-subagent-claude-code
@@ -250,7 +270,6 @@
       config:
         provider: claude-code
         toolName: subagent_claude_code
-        enableRunInBackground: false
         maxDepth: provider-managed
 
     - id: workflow-worker-thread
@@ -285,6 +304,25 @@
   config:
     fetch: false
     searchTimeoutMs: 60000
+
+# Deliverables: hand the person an actual file (a HAP, a signing report, a
+# screenshot) instead of describing where it sits. `standard` carries this row
+# and a HarmonyOS task produces real artifacts on nearly every turn, so its
+# absence was the most visible gap versus the shipped presets.
+- id: present
+  name: '@deepseek-ai/dsh-tool-present'
+
+# Plugin surface. Both stay `disabled`, exactly as in `standard`: an agent must
+# not install or enable plugins behind the person's back. Declaring them here
+# keeps this preset row-for-row comparable with the shipped ones, so enabling
+# either is a one-line edit rather than a new composition.
+- id: tool-plugin-manager
+  name: '@deepseek-ai/dsh-plugin-manager/tools'
+  disabled: true
+
+- id: tool-plugin-market
+  name: '@deepseek-ai/dsh-plugin-market/tools'
+  disabled: true
 
 # The 41 native dev toolchain commands live in the `dsh-hmos-sidebar` package's
 # `tools` submodule. This plain consumer row mounts them into THIS preset's
@@ -325,8 +363,9 @@
 #      PtcWorkflowEngine，上游不提供兼容别名），config.provider: spawn 不变。
 #   2) skills/ 路径：目录型用 `new URL('skills/', baseUrl)`（baseUrl=本目录），
 #      声明式没有自己的目录，改用 createRequire(baseUrl).resolve('dsh-hmos-sidebar/package.json')。
-#   3) product 行 tool-subagent-codex / -claude-code 采用 rc.1 的配置词汇
-#      （backgroundMode: one-shot + maxDepth: provider-managed）。
+#   3) product 行 tool-subagent-codex / -claude-code 只保留 maxDepth: provider-managed。
+#      rc.1 的 backgroundMode / enableRunInBackground 在 0.2.1 的 Config 里已整个移除，
+#      留着只是死配置（schemastery 不拒绝未知键，所以当时也不报错）。
 
 - id: tool-presentation
   name: '@deepseek-ai/dsh-agent-tool-presentation'

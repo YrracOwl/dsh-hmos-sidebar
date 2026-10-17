@@ -16,7 +16,12 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import Schema from '@deepseek-ai/schemastery'
-import { TOOLS } from './dcli-tools.mjs'
+// The tool TABLE, not the tool MODULE: `./dcli-tools.mjs` imports
+// `@deepseek-ai/dsh-tools` (for `defineTool`) at module scope, so importing it
+// here would drag that optional host peer into the host half's graph — and a
+// host that cannot resolve it lost the entire sidebar, not just the model
+// tools. `./tool-specs.mjs` is the same table with no DSH dependency.
+import { TOOLS } from './tool-specs.mjs'
 import {
   resolveEnv,
   configString,

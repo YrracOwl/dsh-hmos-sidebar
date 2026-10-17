@@ -93,25 +93,33 @@ function comparatorHolds(v, c) {
   }
 }
 
-function setHolds(v, comparators) {
+function setHolds(v, comparators, options) {
   for (const c of comparators) if (!comparatorHolds(v, c)) return false
   // Prerelease opt-in (semver rule): a prerelease version only satisfies a set
   // when some comparator in that set carries a prerelease on the same tuple.
   // This is why `^0.1.0-rc.7` alone cannot see `0.1.1-rc.2`: its comparators
   // anchor tuples 0.1.0 and 0.2.0, never 0.1.1.
-  if (v.pre.length > 0) {
+  //
+  // `includePrerelease` is the OTHER reading of the same range, and it is the
+  // one the host actually uses: `@deepseek-ai/dsh-app-boot` calls
+  // `semver.satisfies(runtimeVersion, range, { includePrerelease: true })`, so
+  // a range whose bounds already admit the version numerically must not be
+  // re-rejected merely because the version carries a prerelease tag. Both
+  // readings are asserted below, because a range good for the gate but bad for
+  // npm/pnpm turns into a peer conflict during install.
+  if (v.pre.length > 0 && (options === undefined || options.includePrerelease !== true)) {
     const optedIn = comparators.some((c) => c.version.pre.length > 0 && sameTuple(c.version, v))
     if (!optedIn) return false
   }
   return true
 }
 
-function satisfiesRange(version, range) {
+function satisfiesRange(version, range, options) {
   const v = parseVersion(version)
   return range
     .split('||')
     .map((alt) => alt.trim().split(/\s+/).filter(Boolean).map(parseComparator).flatMap(expand))
-    .some((comparators) => setHolds(v, comparators))
+    .some((comparators) => setHolds(v, comparators, options))
 }
 
 // ---------------------------------------------------------------------------
@@ -127,7 +135,19 @@ test('optional peer @deepseek-ai/dsh-tools uses the clear prerelease-safe OR ran
   // rejects a bundle when `semver.satisfies(runtimeVersion, thisRange, {
   // includePrerelease: true })` is false for a `@deepseek-ai/dsh-*` peer name,
   // which is why the released 0.1.x branches alone excluded the 0.2 host.
-  assert.equal(peerRange, '^0.1.0-rc.7 || ^0.1.1-0 || ^0.1.2-rc.1 || ^0.2.0-rc.1')
+  //
+  // The 0.2 branch is enumerated per prerelease line, because semver's
+  // prerelease opt-in is per-TUPLE: `^0.2.0-rc.1` desugars to
+  // `>=0.2.0-rc.1 <0.3.0-0` and numerically contains 0.2.1-rc.2, yet plain
+  // npm/pnpm resolution rejects it (no comparator anchors the 0.2.1 tuple), and
+  // `^0.2.0-0` does not help — its anchor tuple is 0.2.0, not 0.2.1. The gate
+  // uses `includePrerelease: true` and so accepted the old range all along
+  // while installs reported a peer conflict; pinning 0.2.1's own line makes the
+  // two readings agree.
+  assert.equal(
+    peerRange,
+    '^0.1.0-rc.7 || ^0.1.1-0 || ^0.1.2-rc.1 || ^0.2.0-rc.1 || ^0.2.1-0',
+  )
 })
 
 test('peer range covers the existing minimum 0.1.0-rc.7 and current DSH 0.1.1-rc.2', () => {
@@ -145,12 +165,19 @@ test('peer range stays open across the whole 0.1.1 prerelease line and released 
   }
 })
 
-test('peer range admits the 0.2 line the 0.2.0-rc.2 host gate evaluates', () => {
+test('peer range admits the whole 0.2 line under BOTH semver readings', () => {
+  // Plain npm/pnpm resolution: no prerelease opt-in beyond the anchors.
   for (const v of [
     '0.2.0-rc.1', '0.2.0-rc.2', '0.2.0-rc.10',
-    '0.2.0', '0.2.1',
+    '0.2.1-alpha.1', '0.2.1-alpha.5', '0.2.1-rc.1', '0.2.1-rc.2',
+    '0.2.0', '0.2.1', '0.2.5',
   ]) {
-    assert.equal(satisfiesRange(v, peerRange), true, v + ' must satisfy')
+    assert.equal(satisfiesRange(v, peerRange), true, v + ' must satisfy under plain semver')
+    assert.equal(
+      satisfiesRange(v, peerRange, { includePrerelease: true }),
+      true,
+      v + ' must satisfy under the host gate (includePrerelease)',
+    )
   }
 })
 
@@ -547,12 +574,36 @@ function personaText(preset) {
   return texts
 }
 
-test('every dcli__* name in the always-on prompt exists in the tool module', () => {
-  const toolsSource = fs.readFileSync(path.join(packageRoot, 'lib', 'dcli-tools.mjs'), 'utf8')
+test('every dcli__* name in the always-on prompt exists in the tool table', () => {
+  // Read the TABLE from its own module and cross-check it against the `./tools`
+  // module's re-export. Counting `name: 'dcli__…'` literals in one source file
+  // stopped meaning anything once the table moved to `tool-specs.mjs` — and the
+  // split exists precisely so the host half can read the table without pulling
+  // in `@deepseek-ai/dsh-tools`.
+  const specsSource = fs.readFileSync(path.join(packageRoot, 'lib', 'tool-specs.mjs'), 'utf8')
   const declared = new Set(
-    [...toolsSource.matchAll(/name:\s*'(dcli__[a-z_]+)'/g)].map((m) => m[1]),
+    [...specsSource.matchAll(/name:\s*'(dcli__[a-z_]+)'/g)].map((m) => m[1]),
   )
-  assert.equal(declared.size, 41, 'the tool module should still declare 41 dcli__* tools')
+  assert.equal(declared.size, 41, 'the tool table should still declare 41 dcli__* tools')
+
+  // The table must be free of DSH host packages: that is the whole reason it is a
+  // separate module, and a stray import would silently restore the boot failure
+  // (missing optional peer takes down the host half, not just the model tools).
+  assert.doesNotMatch(
+    specsSource,
+    /^\s*import\s+(?:[\s\S]*?\sfrom\s+)?'@deepseek-ai\//m,
+    'tool-specs.mjs must not import any @deepseek-ai package',
+  )
+
+  // `./tools` keeps its public surface: the same table, re-exported.
+  const toolsSource = fs.readFileSync(path.join(packageRoot, 'lib', 'dcli-tools.mjs'), 'utf8')
+  assert.match(toolsSource, /import \{ TOOLS \} from '\.\/tool-specs\.mjs'/)
+  assert.match(toolsSource, /export \{ TOOLS \}/)
+  assert.doesNotMatch(
+    toolsSource,
+    /^\s*export \{ TOOLS \} from/m,
+    'a pure re-export would leave applyForPlatform() without a local binding',
+  )
 
   for (const preset of ['native-harmonyos', 'liangshen-native-harmonyos']) {
     for (const text of personaText(preset)) {
@@ -561,7 +612,7 @@ test('every dcli__* name in the always-on prompt exists in the tool module', () 
       // empty extraction means the reader broke, not that the prompt is clean.
       assert.ok(mentioned.size >= 5, `${preset}: expected the persona to name the dcli__* tools it uses`)
       for (const name of mentioned) {
-        assert.ok(declared.has(name), `${preset}: persona names ${name}, which the tool module does not declare`)
+        assert.ok(declared.has(name), `${preset}: persona names ${name}, which the tool table does not declare`)
       }
     }
   }
