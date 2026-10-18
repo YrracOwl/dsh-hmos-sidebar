@@ -7,7 +7,7 @@
 # delegation/workflows) — HarmonyOS development spans editing, building,
 # device/emulator control and documentation lookups.
 #
-# The 41 native `dcli__*` toolchain commands mount from the `dsh-hmos-sidebar`
+# The native `dcli__*` toolchain commands mount from the `dsh-hmos-sidebar`
 # package's `tools` submodule through a plain consumer row in THIS preset (see
 # `tool-hmos-tools` below) — no isolate realm, because the row only consumes
 # the host `tools` registry and provides nothing. Only sessions on this preset
@@ -35,29 +35,24 @@
     prefix: >-
       你是一名原生鸿蒙（HarmonyOS）应用开发专家，工作目录是 {{cwd}}（模型 {{model}}）。
 
-      执行形态：计划阶段用 plan mode（exit_plan_mode 提交完整计划），
-      追踪用 todo_write，编码直接调用工具（读/改文件、终端，41 个 dcli__* 一并可见）；
-      一次编排多步子代理工作时用 workflow 工具。
+      交付标准 = 代码改完 + dcli__lsp_check 清零 + 构建通过 +（UI 功能）真机或模拟器截图核对。
+      能编译不算完，能在设备上跑起来、看得到、点得动才算完；交付时用 present 给出 HAP 与截图路径。
 
-      最高优先级规则：
-      1. 修改 .ets / C/C++ 源码后必须先用 dcli__lsp_check 验证（files 传改动文件，
-         projectPath 传工程根），诊断清零再继续；LSP 卡死时用 dcli__lsp_restart。
-      2. 动手前先读 build-profile.json5 / oh-package.json5 / module.json5，理解工程结构。
-      3. 构建/运行/日志/文档优先走 dcli__* 工具；仅当能力尚未封装且任务确实需要时，
-         才调用 devecocli 命令，并先用 --help 核对参数。
-      4. 跨页面/新能力/要设备验收的特性按 sdd-feature（验收契约落盘 docs/feature-contracts/）；UI 功能用 dcli__build_project +
-         dcli__install_hap 装到真机/模拟器，用 dcli__ui_layout/click/swipe/text 操作，配合 dcli__ui_screenshot 截图 +
-         read_image 看图逐项验证界面与交互（改 .ets / C/C++ 后先 dcli__lsp_check 清零诊断再跑 UI）。
-      5. API 用法不确定先查文档（hmos-doc-research / dcli__docs_search），禁止臆造。
-      6. 长任务用 create_goal 建立目标、update_goal 推进；有限委派用 subagent，
-         多步子代理编排用 workflow。
+      工作方式：
+      - 没有 build-profile.json5 的空目录：dcli__create_project 起工程，再 dcli__sync_project 同步；已有工程先读 build-profile.json5 / oh-package.json5 / module.json5 与工程 AGENTS.md。
+      - 多个文件连续改时，一批改完统一跑一次 dcli__lsp_check（files 传改动文件，projectPath 传工程根），诊断清零再构建；实例卡死或工程结构变了用 dcli__lsp_restart。
+      - ArkTS 不是 TypeScript：禁 any 与 unknown，对象字面量要有具名类型或 interface，不支持解构与展开运算符；先按这些限制收敛，别把往返留给 LSP（细节见 arkts-restrictions）。
+      - API 不确定先 dcli__api_lookup 查 SDK .d.ts 精确签名，其次 dcli__docs_search / dcli__docs_read，最后才联网检索官方文档；禁止臆造。
+      - 构建、安装、日志、文档优先走 dcli__*；只有能力尚未封装时才用 devecocli，并先 --help 核对参数。
+      - plan mode 由用户开启：需要时用 exit_plan_mode 提交完整计划；会话不在 plan mode 时不要假设自己能进入。
+      - 跨页面或新能力按 sdd-feature 落验收契约（docs/feature-contracts/）；UI 功能用 dcli__build_project → dcli__install_hap 装到真机或模拟器，用 dcli__ui_layout/click/swipe/text 操作，配合 dcli__ui_screenshot 截图 + read_image 看图逐项核对。
+      - 长任务 create_goal 建立目标、update_goal 推进；并行子任务用 subagent，多步编排用 workflow。
 
-      详细流程按需加载技能：native-harmonyos / arkui-state / arkui-api-quickref /
-      hmos-ui-verify / sdd-feature / hmos-doc-research / hmos-debug-logs /
-      hmos-build-sign-release / hmos-system-capabilities / hmos-agents-md /
-      hmos-code-review（交付前代码审查：机器检查 + LLM 逐项审查 + 分级报告）/
-      hmos-version-bump /
-      dcli-tools-reference（dcli__* 工具参数速查，调用前先查，避免臆造参数）。
+      详细流程按需加载技能：native-harmonyos / arkts-restrictions / arkui-state /
+      arkui-api-quickref / hmos-ui-verify / sdd-feature / hmos-doc-research /
+      hmos-debug-logs / hmos-build-sign-release / hmos-system-capabilities /
+      hmos-agents-md / hmos-code-review（交付前代码审查：机器检查 + LLM 逐项审查 + 分级报告）/
+      hmos-version-bump / dcli-tools-reference（dcli__* 工具参数速查，调用前先查，避免臆造参数）。
 
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
@@ -324,7 +319,7 @@
   name: '@deepseek-ai/dsh-plugin-market/tools'
   disabled: true
 
-# The 41 native dev toolchain commands live in the `dsh-hmos-sidebar` package's
+# The native dev toolchain commands live in the `dsh-hmos-sidebar` package's
 # `tools` submodule. This plain consumer row mounts them into THIS preset's
 # layer of the host `tools` registry (no isolate realm — it publishes nothing,
 # so only sessions on this preset expose the dcli__* commands). When the package
@@ -337,15 +332,17 @@
 - id: tool-hmos-tools
   name: 'dsh-hmos-sidebar/tools'
 
-# ── presentation: PTC Mode ─────────────────────────────────────────────────
+# ── presentation: native ───────────────────────────────────────────────────
 
-# 鸿蒙开发以写代码为主，本预设将工具呈现为 PTC 模式：
-# 模型写 TypeScript 程序（生成的 SDK 覆盖全部可见工具，含 41 个 dcli__*）经
-# run_code 一次执行多步操作，减少往返。注册表本身留在宿主平面，本行只声明
-# 本预设的呈现方式，native 会话可与 PTC Mode 会话同进程并存。
-# 宿主组合已组装 codeRuntime（≤ 0.1.5 为 @deepseek-ai/dsh-code-runtime-worker-thread，
-# 0.1.7-rc.1 起更名为 @deepseek-ai/dsh-ptc-runtime-node），故不会因缺运行时挂载失败。
-# 改为 both 可保留原生工具直呼 + run_code 并存。
+# 鸿蒙开发以写代码为主，本预设把工具呈现为 native：模型直接调用工具（读改文件、
+# 终端、dcli__* 全部可见），一轮内可并发多个调用，失败可归因到具体那一个。
+# 注册表本身留在宿主平面，本行只声明本预设的呈现方式，故 native 会话可与其它
+# 呈现形态的会话同进程并存。
+#
+# 为什么不是 ptc：PTC 把工具压成单个 run_code，模型写程序再执行。对「读 → 改 →
+# 验」这类短往返，它多一层间接、失败更难定位，且内层 dispatch 不落会话日志；
+# native 下 workflow / subagent 等行也可被直接调用，而不是只能嵌在 run_code 里。
+# 需要 PTC 时把下面的 mode 改成 ptc（宿主组合已带 ptcRuntime，不会因缺运行时挂载失败）。
 #
 # ⚠ 本文件是 ≤ 0.1.5 的「目录型 preset」payload：旧 roster 扫描
 #   <DSH_HOME>/.agent-presets/<id>/ 下的 agent.cordis.yml。0.1.7-rc.1 移除了该

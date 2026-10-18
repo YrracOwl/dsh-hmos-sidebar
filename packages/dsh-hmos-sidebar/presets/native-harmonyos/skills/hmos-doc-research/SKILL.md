@@ -1,6 +1,6 @@
 ---
 name: hmos-doc-research
-description: HarmonyOS 官方知识检索流程：统一入口 dcli__api_lookup（SDK .d.ts 精确签名 + 本地文档库多源印证），其次 dcli__docs_search / docs_read，最后 web_search 限定 developer.huawei.com 等官方站点；查到权威定义后再写代码，禁止臆造 API。
+description: HarmonyOS 官方知识检索流程：统一入口 dcli__api_lookup（SDK .d.ts 精确签名 + 本地文档库多源印证），其次 dcli__docs_search / docs_read，最后联网检索官方站点；查到权威定义后再写代码，禁止臆造 API。
 ---
 
 # HarmonyOS 官方知识检索流程
@@ -25,7 +25,9 @@ description: HarmonyOS 官方知识检索流程：统一入口 dcli__api_lookup�
    - `sdk/default/hms/ets/api/*.d.ts` — HMS API
    （目录内的文件数量随 SDK 版本变化，勿引用固定计数；以实际安装的 SDK 目录与 `dcli__api_lookup` 的命中为准）
 2. **本地文档库**（deveco docs，离线官方文档全文：开发指南/API 参考/FAQ/最佳实践）
-3. **官方在线站点**（web_search 限定 developer.huawei.com / docs.openharmony.cn）
+3. **官方在线站点**（联网检索 developer.huawei.com / docs.openharmony.cn）：前两层没有命中、
+   或需要确认版本差异与最新变更时才用。用具不具备联网检索能力由部署决定——有就用来查官方站点，
+   没有就明确告诉用户「本地 SDK 与离线文档未覆盖，需要人工确认」，不要凭记忆猜。
 
 ## 检索步骤（按优先级）
 
@@ -34,9 +36,11 @@ description: HarmonyOS 官方知识检索流程：统一入口 dcli__api_lookup�
    - 结果聚焦单个区域时传 `scope`（component/api/kits/arkts/hms/docs），默认 all。
    - 需要文档全文时，用返回的 documentId 调 `dcli__docs_read`。
 2. **`dcli__docs_search` / `dcli__docs_catalog`**：按关键词检索本机离线文档索引；`documentId` 用 `dcli__docs_read` 读全文。
-3. **web_search 限定官方域**：
+3. **联网检索官方站点**（可选层级，取决于部署是否提供联网检索）：
    - 查询示例：`site:developer.huawei.com <API 名> ArkTS` 或 `<组件名> 文档 site:developer.huawei.com`
    - 备选权威来源：`docs.openharmony.cn`（OpenHarmony 文档）、HarmonyOS 官方博客/发布说明。
+   - 只用官方站点域名限定；三方博客、AI 生成页面仅作线索，不得作为签名依据。
+   - 结果只是摘要、需要正文时，用部署提供的页面读取能力读原文；两者都没有就停下来说明缺口。
 4. **交叉确认**：API 签名、装饰器规则、权限声明以官方文档原文与 SDK 声明为准；三方博客仅作线索。
 
 ## 环境与路径

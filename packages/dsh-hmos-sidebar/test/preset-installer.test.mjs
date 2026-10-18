@@ -40,14 +40,9 @@ test('presetRootFor respects DSH_HOME and otherwise uses the user home', () => {
   assert.equal(presetRootFor({}, 'C:\\Users\\example'), path.resolve('C:\\Users\\example', '.dsh', '.agent-presets'))
 })
 
-test('parseArgs installs both presets by default and supports a selection', () => {
+test('parseArgs installs the bundled preset by default and supports a selection', () => {
   assert.deepEqual(parseArgs(['install-presets']).presets, PRESET_IDS)
   assert.deepEqual(parseArgs(['install-presets', '--preset', 'native-harmonyos']).presets, ['native-harmonyos'])
-  assert.deepEqual(
-    parseArgs(['install-presets', '--preset', 'liangshen-native-harmonyos']).presets,
-    ['native-harmonyos', 'liangshen-native-harmonyos'],
-    '梁神预设必须同时安装它相对引用的 native skills',
-  )
   assert.equal(parseArgs(['--help']).help, true)
   assert.throws(() => parseArgs(['install-presets', '--preset', 'unknown']), /不支持的预设/)
 })
@@ -96,7 +91,7 @@ test('force mode backs up the existing preset before replacement', () => {
 test('dry-run reports the target without modifying it', () => {
   const f = fixture()
   try {
-    const result = installPreset('liangshen-native-harmonyos', {
+    const result = installPreset('native-harmonyos', {
       root: f.targetRoot,
       sourceRoot: f.sourceRoot,
       dryRun: true,
@@ -199,7 +194,6 @@ test('renderManagedBlock writes one cordis:include row per preset and no machine
   const block = renderManagedBlock()
   assert.match(block, /^- insert:$/m)
   assert.match(block, /^ {4}- id: hmos-preset-native-harmonyos$/m)
-  assert.match(block, /^ {4}- id: hmos-preset-liangshen-native-harmonyos$/m)
   assert.match(block, /^ {6}name: cordis:include$/m)
   assert.match(block, /^ {8}path: \.\/node_modules\/dsh-hmos-sidebar\/presets\/native-harmonyos\.declarative\.yml$/m)
   assert.ok(block.startsWith(MANAGED_BEGIN + '\n'))
@@ -215,7 +209,6 @@ test('mergeManagedBlock replaces the empty document and keeps every user comment
   assert.match(result.text, /^# 第二行注释$/m)
   assert.doesNotMatch(result.text, /^\[\]$/m, 'the empty flow document cannot be appended to and must be replaced')
   assert.match(result.text, /^- insert:$/m)
-  assert.match(result.text, /hmos-preset-liangshen-native-harmonyos/)
 })
 
 test('mergeManagedBlock appends to a document that already carries entries', () => {
@@ -270,7 +263,6 @@ test('mergeManagedBlock preserves entries the config editor appended inside the 
   assert.equal(result.replaced, true)
   assert.equal(result.text, original, 'an already-canonical block must not rewrite a single byte')
   assert.equal((result.text.match(/id: hmos-preset-native-harmonyos/g) || []).length, 1)
-  assert.equal((result.text.match(/id: hmos-preset-liangshen-native-harmonyos/g) || []).length, 1)
   assert.equal(mergeManagedBlock(result.text, renderManagedBlock()).text, result.text, 'the merge is idempotent')
 })
 
@@ -344,7 +336,6 @@ test('declarative dry-run shows the block and touches nothing', () => {
   try {
     const result = installPresetsDeclarative({ profileDir: f.profile, dryRun: true })
     assert.equal(result.dryRun, true)
-    assert.match(result.block, /hmos-preset-liangshen-native-harmonyos/)
     assert.equal(fs.readFileSync(result.target, 'utf8'), '[]\n')
     assert.equal(fs.readdirSync(f.profile).some((name) => name.includes('.backup-')), false)
   } finally { f.dispose() }

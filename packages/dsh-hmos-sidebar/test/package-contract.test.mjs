@@ -255,64 +255,37 @@ test('Windows-only, exports, and tools-separation contracts unchanged', () => {
   assert.doesNotMatch(indexSource, /\.tools\.register/)
 })
 
-test('bundled HarmonyOS presets use the current native presentation identifier', () => {
+test('the bundled HarmonyOS preset uses the current native presentation identifier', () => {
   const nativeComposition = fs.readFileSync(
     path.join(packageRoot, 'presets', 'native-harmonyos', 'agent.cordis.yml'),
     'utf8',
   )
-  const liangshenComposition = fs.readFileSync(
-    path.join(packageRoot, 'presets', 'liangshen-native-harmonyos', 'agent.cordis.yml'),
-    'utf8',
-  )
-  const bootstrapSource = fs.readFileSync(
-    path.join(packageRoot, 'presets', 'liangshen-native-harmonyos', 'tool-bootstrap.mjs'),
-    'utf8',
-  )
 
-  // 2026-09-30: both presets are native coding verticals. The twin declares the
-  // presentation statically, Liangshen selects it through its bootstrap config —
-  // and that config still routes through the imperative `presentAs` switch, so
-  // the source contract below stays pinned even though `native` never fires it.
+  // The preset is a native coding vertical and declares its presentation
+  // statically rather than inheriting a deployment default it did not choose.
   assert.match(nativeComposition, /^\s+mode: native$/m)
-  assert.match(liangshenComposition, /^\s+promotedPresentation: native$/m)
-  assert.match(bootstrapSource, /tools\.presentAs\('ptc'\)/)
-  assert.match(bootstrapSource, /promotedPresentation must be "native" or "ptc"/)
-
-  for (const source of [nativeComposition, liangshenComposition, bootstrapSource]) {
-    assert.doesNotMatch(source, /(?:mode|promotedPresentation): code\b/)
-    assert.doesNotMatch(source, /presentAs\(['"]code['"]\)/)
-  }
+  assert.doesNotMatch(nativeComposition, /(?:mode|promotedPresentation): code\b/)
+  assert.doesNotMatch(nativeComposition, /presentAs\(['"]code['"]\)/)
 })
 
-test('bundled HarmonyOS presets use the current dsh-persona config contract', () => {
-  const presets = ['native-harmonyos', 'liangshen-native-harmonyos']
-  for (const preset of presets) {
-    const composition = fs.readFileSync(
-      path.join(packageRoot, 'presets', preset, 'agent.cordis.yml'),
-      'utf8',
-    )
-    // The persona row plus its config block: from its `- id: persona` row up to
-    // the next top-level row. Every line in between is indented. Match CRLF and
-    // LF: a Windows checkout with core.autocrlf=true converts the file.
-    const row = /\r?\n- id: persona\r?\n(?:[ \t].*\r?\n|\r?\n)*/.exec(composition)
-    assert.ok(row, preset + ': expected a persona row')
-    const rowText = row[0].replace(/\r\n/g, '\n')
-
-    // `prefix` is REQUIRED since @deepseek-ai/dsh-persona 0.1.5-rc.1; the
-    // pre-0.1.5 `text` key is unrecognized, so the mount fails with
-    // "- $.prefix missing required value (at prefix)" and the preset cannot be
-    // switched to at all.
-    assert.match(rowText, /^\s+prefix: /m, preset + ': persona config needs the required `prefix` key')
-    assert.doesNotMatch(rowText, /^\s+text: /m, preset + ': the pre-0.1.5 `text` persona key is not a valid config key')
-  }
-
-  // The Liangshen bootstrap filters the phase-1 assembly by section name, so it
-  // must know the split persona-section names of the installed host.
-  const bootstrapSource = fs.readFileSync(
-    path.join(packageRoot, 'presets', 'liangshen-native-harmonyos', 'tool-bootstrap.mjs'),
+test('the bundled HarmonyOS preset uses the current dsh-persona config contract', () => {
+  const composition = fs.readFileSync(
+    path.join(packageRoot, 'presets', 'native-harmonyos', 'agent.cordis.yml'),
     'utf8',
   )
-  assert.match(bootstrapSource, /PERSONA_SECTION_NAMES = new Set\(\['deployment:persona-prefix', 'deployment:persona', 'persona'\]\)/)
+  // The persona row plus its config block: from its `- id: persona` row up to
+  // the next top-level row. Every line in between is indented. Match CRLF and
+  // LF: a Windows checkout with core.autocrlf=true converts the file.
+  const row = /\r?\n- id: persona\r?\n(?:[ \t].*\r?\n|\r?\n)*/.exec(composition)
+  assert.ok(row, 'expected a persona row')
+  const rowText = row[0].replace(/\r\n/g, '\n')
+
+  // `prefix` is REQUIRED since @deepseek-ai/dsh-persona 0.1.5-rc.1; the
+  // pre-0.1.5 `text` key is unrecognized, so the mount fails with
+  // "- $.prefix missing required value (at prefix)" and the preset cannot be
+  // switched to at all.
+  assert.match(rowText, /^\s+prefix: /m, 'persona config needs the required `prefix` key')
+  assert.doesNotMatch(rowText, /^\s+text: /m, 'the pre-0.1.5 `text` persona key is not a valid config key')
 })
 
 // ---------------------------------------------------------------------------
@@ -333,7 +306,7 @@ function declarativeSource(id) {
 test('each bundled preset ships a declarative payload the installer can include', () => {
   assert.equal(pkg.files.includes('presets'), true, 'the payloads must ship in the tarball')
 
-  const orders = { 'native-harmonyos': 5, 'liangshen-native-harmonyos': 6 }
+  const orders = { 'native-harmonyos': 5 }
   for (const [id, order] of Object.entries(orders)) {
     const flat = declarativeSource(id)
 
@@ -375,7 +348,7 @@ test('each bundled preset ships a declarative payload the installer can include'
 })
 
 test('declarative payloads keep the current persona and presentation contracts', () => {
-  for (const id of ['native-harmonyos', 'liangshen-native-harmonyos']) {
+  for (const id of ['native-harmonyos']) {
     const flat = declarativeSource(id)
     const row = /\n {6}- id: persona\n([\s\S]*?)(?=\n {6}- id: )/.exec(flat)
     assert.ok(row, id + ': expected a persona row in the declaration')
@@ -387,43 +360,12 @@ test('declarative payloads keep the current persona and presentation contracts',
 
   // native-harmonyos declares `native` statically and keeps the presentation row
   // explicit rather than dropping it, so the preset never inherits a deployment
-  // default it did not choose. The two dcli__* tool mounts make it the shipped
+  // default it did not choose. The dcli__* tool mount makes it the shipped
   // HarmonyOS vertical.
   const native = declarativeSource('native-harmonyos')
   assert.match(native, /^ {10}mode: native$/m)
   assert.match(native, /name: '@deepseek-ai\/dsh-agent-tool-presentation'/)
   assert.match(native, /name: 'dsh-hmos-sidebar\/tools'/)
-
-  // Liangshen must NOT declare a static mode: rc.1's `tools.presentAs()` throws
-  // when the scope already has one, and the bootstrap owns the (now unused)
-  // switch. Its config selects `native`, which the bootstrap validates.
-  const liangshen = declarativeSource('liangshen-native-harmonyos')
-  assert.match(liangshen, /^ {10}promotedPresentation: native$/m)
-  assert.doesNotMatch(liangshen, /- id: tool-presentation/, 'a static mode would conflict with tools.presentAs()')
-  assert.match(liangshen, /name: 'dsh-hmos-sidebar\/presets\/liangshen-tool-bootstrap'/)
-})
-
-test('Liangshen preset modules are reachable as package subpaths', () => {
-  // A declarative row's baseUrl is the declaration file, so `./tool-bootstrap.mjs`
-  // would only resolve while the preset was a directory. The modules stay where
-  // they are and become subpath exports instead.
-  const liangshen = declarativeSource('liangshen-native-harmonyos')
-  for (const [subpath, target] of [
-    ['./presets/liangshen-tool-bootstrap', './presets/liangshen-native-harmonyos/tool-bootstrap.mjs'],
-    ['./presets/liangshen-custom-bash', './presets/liangshen-native-harmonyos/custom-bash.mjs'],
-  ]) {
-    assert.equal(pkg.exports[subpath], target, 'export ' + subpath + ' must exist')
-    assert.equal(fs.existsSync(path.join(packageRoot, target)), true, target + ' must exist')
-  }
-  assert.match(liangshen, /name: 'dsh-hmos-sidebar\/presets\/liangshen-tool-bootstrap'/)
-  assert.match(liangshen, /name: 'dsh-hmos-sidebar\/presets\/liangshen-custom-bash'/)
-
-  // The bootstrap keeps importing its sibling by relative path: only the
-  // module SPECIFIER changed, the files did not move.
-  assert.match(
-    fs.readFileSync(path.join(packageRoot, 'presets', 'liangshen-native-harmonyos', 'tool-bootstrap.mjs'), 'utf8'),
-    /import \{ sessionEvents \} from '\.\/dsh-compat\.mjs'/,
-  )
 })
 
 // ---------------------------------------------------------------------------
@@ -566,12 +508,20 @@ function personaText(preset) {
     read(path.join(packageRoot, 'presets', preset, 'agent.cordis.yml')),
     read(path.join(packageRoot, 'presets', `${preset}.declarative.yml`)),
   ]
-  const texts = sources.map((source) => [
-    personaField(source, 'prefix'),
-    personaField(source, 'promotedPersonaText'),
-  ].join('\n'))
+  const texts = sources.map((source) => personaField(source, 'prefix'))
   for (const text of texts) assert.ok(text.trim().length > 0, preset + ': expected persona prompt text')
   return texts
+}
+
+/** Every shipped skill document, with a stable label for failure messages. */
+function skillDocuments() {
+  const skillsRoot = path.join(packageRoot, 'presets', 'native-harmonyos', 'skills')
+  return fs.readdirSync(skillsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => ({
+      name: entry.name,
+      text: fs.readFileSync(path.join(skillsRoot, entry.name, 'SKILL.md'), 'utf8').replace(/\r\n/g, '\n'),
+    }))
 }
 
 test('every dcli__* name in the always-on prompt exists in the tool table', () => {
@@ -605,7 +555,7 @@ test('every dcli__* name in the always-on prompt exists in the tool table', () =
     'a pure re-export would leave applyForPlatform() without a local binding',
   )
 
-  for (const preset of ['native-harmonyos', 'liangshen-native-harmonyos']) {
+  for (const preset of ['native-harmonyos']) {
     for (const text of personaText(preset)) {
       const mentioned = new Set([...text.matchAll(/\bdcli__[a-z_]+/g)].map((m) => m[0]))
       // Guard against a vacuous pass: the persona does name these tools, so an
@@ -622,7 +572,7 @@ test('every skill named in the always-on prompt exists in the skills directory',
   const skillsRoot = path.join(packageRoot, 'presets', 'native-harmonyos', 'skills')
   const shipped = new Set(fs.readdirSync(skillsRoot, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name))
 
-  for (const preset of ['native-harmonyos', 'liangshen-native-harmonyos']) {
+  for (const preset of ['native-harmonyos']) {
     for (const text of personaText(preset)) {
       const marker = '按需加载技能：'
       const start = text.indexOf(marker)
@@ -641,11 +591,33 @@ test('every skill named in the always-on prompt exists in the skills directory',
   }
 })
 
-test('the always-on prompt names nothing the native presets switched off', () => {
-  // Both presets select `native` and disable `tool-ralph`: `run_code` (the PTC
+test('shipped skills name no tool the preset does not mount', () => {
+  // The always-on persona already has this hygiene rule. Skills did not, and
+  // drifted: `native-harmonyos` and `sdd-feature` both told the model that the
+  // disabled `tool-ralph` was available. A skill is loaded into the SAME
+  // context the persona occupies, so a stale tool name there costs exactly the
+  // same UNKNOWN_TOOL call.
+  const composition = fs.readFileSync(
+    path.join(packageRoot, 'presets', 'native-harmonyos', 'agent.cordis.yml'),
+    'utf8',
+  ).replace(/\r\n/g, '\n')
+  // `tool-ralph` is declared but disabled; it must be treated as absent. The row
+  // sits inside the `delegation` group, so match it at any indentation.
+  const ralphRow = /\n\s*- id: tool-ralph\n([\s\S]*?)(?=\n\s*- id: |\n# ──)/.exec(composition)
+  assert.ok(ralphRow, 'expected the tool-ralph row to stay declared')
+  assert.match(ralphRow[1], /^\s+disabled: true$/m, 'tool-ralph must stay disabled while skills say it is absent')
+
+  for (const skill of skillDocuments()) {
+    assert.doesNotMatch(skill.text, /\bralph\b/i, `skill ${skill.name}: tool-ralph is disabled in this preset`)
+    assert.doesNotMatch(skill.text, /\brun_code\b/, `skill ${skill.name}: run_code does not exist under native`)
+  }
+})
+
+test('the always-on prompt names nothing the native preset switched off', () => {
+  // The preset selects `native` and disables `tool-ralph`: `run_code` (the PTC
   // transport) is not in a native catalog at all, so naming either would be a
   // guaranteed UNKNOWN_TOOL.
-  for (const preset of ['native-harmonyos', 'liangshen-native-harmonyos']) {
+  for (const preset of ['native-harmonyos']) {
     for (const text of personaText(preset)) {
       assert.doesNotMatch(text, /\brun_code\b/, preset + ': run_code does not exist under the native presentation')
       assert.doesNotMatch(text, /PTC Mode|PTC 模式|PTC SDK/, preset + ': the persona still describes PTC execution')

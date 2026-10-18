@@ -6,7 +6,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-export const PRESET_IDS = ['native-harmonyos', 'liangshen-native-harmonyos']
+export const PRESET_IDS = ['native-harmonyos']
 
 /**
  * Host models this installer can target. DSH ≤ 0.1.5 discovers agent presets as
@@ -103,10 +103,6 @@ export function parseArgs(argv) {
   const presets = selected.length ? [...new Set(selected)] : [...PRESET_IDS]
   for (const id of presets) {
     if (!PRESET_IDS.includes(id)) throw new Error(`不支持的预设：${id}`)
-  }
-  // 梁神预设的 skills 目录来自 native-harmonyos，必须成对安装（目录型与声明式同此）。
-  if (presets.includes('liangshen-native-harmonyos') && !presets.includes('native-harmonyos')) {
-    presets.unshift('native-harmonyos')
   }
   return { command, presets, force, dryRun, mode, profileDir, help: false }
 }
@@ -419,10 +415,10 @@ export function usage() {
 
 用法：
   dsh-hmos-sidebar install-presets [--all]
-  dsh-hmos-sidebar install-presets --preset <id> [--preset <id>]
+  dsh-hmos-sidebar install-presets --preset <id>
 
 选项：
-  --all             安装两个预设（默认行为）
+  --all             安装全部预设（默认行为）
   --preset ID       只安装指定预设，可重复
   --dry-run         只显示目标与将要写入的内容，不改文件
   --force           目标已存在时先创建带时间戳的备份，再替换

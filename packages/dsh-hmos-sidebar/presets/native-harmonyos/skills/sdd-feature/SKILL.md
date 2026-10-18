@@ -27,7 +27,7 @@ description: 为跨模块、新能力、外部行为变更或用户明确要求�
 | `create_goal` | 当前会话内的长期完成目标，适用于跨多轮或 compaction；不是跨会话记忆 |
 | 契约文件 | 跨会话、进程和代理的持久验收来源 |
 | `subagent` / `workflow` | 接收契约路径和验收条件；主会话拥有并维护契约 |
-| `ralph` | 仅在用户明确要求 Ralph / 新鲜代理迭代时调用。特性实现的 objective 应引用契约；探索或排障则使用用户给出的不可变目标 |
+| 新鲜上下文 | 需要丢掉上下文重开时用 `subagent`（自包含 prompt）或 `workflow`；探索与排障把用户给出的不可变目标写进契约或 objective |
 
 ## 3. 契约位置与格式
 
@@ -88,5 +88,4 @@ Evidence: <截图 / UI layout / 构建结果 / 日志 / 数据输出>
 - 将 plan mode、`exit_plan_mode` 当作每个任务的必经门
 - 将 `todo_write`、goal 状态复制到 `tasks.md`
 - 在场景中虚构 `dcli__ui_*` 参数、控件 id 或坐标
-- 未获用户明确要求就调用 `ralph`
 - 在用户明确指定的规格体系旁另起一套目录

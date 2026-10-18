@@ -4,8 +4,7 @@
 
 - **HarmonyOS 工作台插件**：在 DSH Web 中提供悬浮面板、构建、部署、设备、日志、截图和工程探测功能。
 - **41 个 `dcli__*` 工具**：供 Agent 执行构建、LSP 检查、设备控制、UI 自动化、文档查询和签名配置等任务。
-- **原生鸿蒙开发预设**：提供 HarmonyOS 专家 Persona、开发流程和配套 Skills。
-- **梁神模式原生鸿蒙预设**：在梁神模式晋升后启用相同的 HarmonyOS 工具链。
+- **原生鸿蒙开发预设**：提供 HarmonyOS 专家 Persona、交付标准（诊断清零 → 构建 → 真机截图）和 14 份配套 Skills。
 
 > 仅支持 Windows。需要已安装 DeepSeek Harness；HarmonyOS 构建和设备能力还需要 DevEco Studio、HarmonyOS SDK，以及按需安装的 deveco-cli。
 
@@ -14,7 +13,6 @@
 ```text
 packages/dsh-hmos-sidebar/            npm 包：DSH 插件、41 个 dcli__* 工具和预设安装器
   presets/native-harmonyos/           “原生鸿蒙开发”预设及 Skills
-  presets/liangshen-native-harmonyos/ “梁神模式-原生鸿蒙开发”预设
 ```
 
 ## 安装
@@ -66,9 +64,8 @@ node .\bin\dsh-hmos-sidebar.mjs install-presets
 默认安装：
 
 - `native-harmonyos`（原生鸿蒙开发）
-- `liangshen-native-harmonyos`（梁神模式-原生鸿蒙开发）
 
-只安装一个预设：
+只安装指定预设：
 
 ```powershell
 npx --yes dsh-hmos-sidebar install-presets --preset native-harmonyos

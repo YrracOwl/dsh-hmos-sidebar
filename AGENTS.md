@@ -9,7 +9,7 @@ The package-local `packages/dsh-hmos-sidebar/AGENTS.md` adds implementation, pre
 ## Repository Map
 
 - `packages/dsh-hmos-sidebar/`: the npm package and its tests.
-- `packages/dsh-hmos-sidebar/presets/`: authoritative source for the bundled `native-harmonyos` and `liangshen-native-harmonyos` presets.
+- `packages/dsh-hmos-sidebar/presets/`: authoritative source for the bundled `native-harmonyos` preset.
 - `.github/workflows/publish-npm.yml`: Windows release workflow; tag pushes matching `v*.*.*` run tests, verify package contents, create the GitHub Release, and publish to npm with provenance.
 
 ## Release Workflow
