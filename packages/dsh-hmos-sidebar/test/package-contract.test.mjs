@@ -628,3 +628,61 @@ test('the always-on prompt names nothing the native preset switched off', () => 
     }
   }
 })
+
+test('prompt variables in the persona are registered by the host', () => {
+  // `dsh-system-prompt` interpolates `{{name}}` strictly: an unknown name throws
+  // inside section rendering, so the request never leaves the process and the
+  // whole session fails to start. Measured failure on DSH 0.2.1-rc.2 with a
+  // persona carrying `{{cwd}}`:
+  //
+  //   unknown prompt variable "{{cwd}}" in section "deployment:persona-prefix";
+  //   registered variables: provider, model
+  //
+  // 0.2.x registers exactly `provider` and `model` — both from `dsh-agent-loop`
+  // — and nothing else. The working directory is NOT a variable there: it
+  // arrives as the `working-directory:current` runtime context, which is why
+  // the persona must refer to it in prose rather than interpolate it.
+  const REGISTERED = new Set(['provider', 'model'])
+
+  for (const preset of ['native-harmonyos']) {
+    for (const text of personaText(preset)) {
+      // Only the persona BODY is interpolated; a `{{cwd}}` in a comment is inert.
+      // Strip comment lines so this guard judges what the model actually receives.
+      const body = text.split('\n').filter((line) => !line.trimStart().startsWith('#')).join('\n')
+      for (const match of body.matchAll(/\{\{([a-z][a-z0-9_]*)\}\}/g)) {
+        assert.ok(
+          REGISTERED.has(match[1]),
+          `${preset}: persona interpolates {{${match[1]}}}, which the host does not register `
+          + `(registered: ${[...REGISTERED].join(', ')}) — the session would fail to start`,
+        )
+      }
+    }
+    // Skills are loaded into the same prompt, so they are held to the same rule.
+    for (const skill of skillDocuments()) {
+      for (const match of skill.text.matchAll(/\{\{([a-z][a-z0-9_]*)\}\}/g)) {
+        assert.ok(
+          REGISTERED.has(match[1]),
+          `skill ${skill.name}: interpolates {{${match[1]}}}, which the host does not register`,
+        )
+      }
+    }
+  }
+})
+
+test('preset comments do not advertise {{cwd}} as a prompt variable', () => {
+  // The comments in both payloads used to say "`{{model}}` and `{{cwd}}` resolve
+  // from …". That is false on 0.2.x and actively harmful: it invites the next
+  // editor to interpolate a variable that hard-fails every request. A comment may
+  // still explain the failure, so only the affirmative claim is rejected.
+  for (const file of [
+    path.join(packageRoot, 'presets', 'native-harmonyos', 'agent.cordis.yml'),
+    path.join(packageRoot, 'presets', 'native-harmonyos.declarative.yml'),
+  ]) {
+    const text = fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n')
+    assert.doesNotMatch(
+      text,
+      /`\{\{cwd\}\}`\s*(?:and\s*`\{\{model\}\}`\s*)?resolves?\b|`\{\{model\}\}`\s*and\s*`\{\{cwd\}\}`[^\n]*resolve/i,
+      path.basename(file) + ': a comment still claims {{cwd}} is a resolving prompt variable',
+    )
+  }
+})

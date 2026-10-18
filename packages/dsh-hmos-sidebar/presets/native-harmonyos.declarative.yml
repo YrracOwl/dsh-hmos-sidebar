@@ -59,14 +59,19 @@
       # ── identity ──────────────────────────────────────────────────────────
       #
       # The preset's own persona, shadowing the deployment default for this
-      # agent. `{{model}}` and `{{cwd}}` resolve from the agent's own route and
-      # workspace. `prefix` is REQUIRED since DSH 0.1.5-rc.1 (the pre-0.1.5
-      # `text` key is gone and fails the mount); rc.1 keeps the same contract.
+      # agent. `{{model}}` resolves from the agent's route. The working directory
+      # is NOT a prompt variable here: `dsh-agent-loop` registers exactly
+      # `provider` and `model`, and an unregistered `{{cwd}}` throws inside
+      # section rendering, failing the request before it is sent (measured on
+      # DSH 0.2.1-rc.2). The cwd reaches the model as the
+      # `working-directory:current` runtime context instead.
+      # `prefix` is REQUIRED since DSH 0.1.5-rc.1 (the pre-0.1.5 `text` key is
+      # gone and fails the mount); rc.1 keeps the same contract.
       - id: persona
         name: '@deepseek-ai/dsh-persona'
         config:
           prefix: >-
-            你是一名原生鸿蒙（HarmonyOS）应用开发专家，工作目录是 {{cwd}}（模型 {{model}}）。
+            你是一名原生鸿蒙（HarmonyOS）应用开发专家，工作目录见运行上下文（模型 {{model}}）。
 
             交付标准 = 代码改完 + dcli__lsp_check 清零 + 构建通过 +（UI 功能）真机或模拟器截图核对。
             能编译不算完，能在设备上跑起来、看得到、点得动才算完；交付时用 present 给出 HAP 与截图路径。

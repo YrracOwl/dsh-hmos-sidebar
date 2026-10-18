@@ -1,6 +1,6 @@
 {
   "name": "dsh-hmos-sidebar",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "EN: Windows-only HarmonyOS workbench for DeepSeek Harness with 41 dcli tools and one native agent preset. ZH: 面向 DeepSeek Harness 的 Windows 原生鸿蒙开发工作台，包含 41 个 dcli 工具与一个原生鸿蒙预设。",
   "type": "module",
   "main": "lib/index.js",
